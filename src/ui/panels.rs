@@ -1,5 +1,6 @@
 use crate::DatasetCleanerApp;
 use eframe::egui;
+use super::image_renderer::ImageRenderer;
 
 /// Render the top panel with navigation and dataset controls
 pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
@@ -210,9 +211,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 let img_size = texture.size_vec2();
                 
                 // Calculate scaling to fit the image within available space
-                let scale = (available_size.x / img_size.x)
-                    .min(available_size.y / img_size.y)
-                    .min(1.0);
+                let scale = ImageRenderer::calculate_image_scale(img_size, available_size);
                 
                 let scaled_size = img_size * scale;
                 
@@ -228,79 +227,12 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 
                 // Draw bounding boxes if label data exists
                 if let Some(label) = &app.current_label {
-                    let painter = ui.painter();
-                    
-                    for detection in &label.detections {
-                        // Convert normalized YOLO coordinates to screen coordinates
-                        // YOLO format: center_x, center_y, width, height (all normalized 0-1)
-                        let bbox_center_x = detection.x_center * scaled_size.x;
-                        let bbox_center_y = detection.y_center * scaled_size.y;
-                        let bbox_width = detection.width * scaled_size.x;
-                        let bbox_height = detection.height * scaled_size.y;
-                        
-                        // Calculate top-left corner
-                        let bbox_x = bbox_center_x - (bbox_width / 2.0);
-                        let bbox_y = bbox_center_y - (bbox_height / 2.0);
-                        
-                        // Create rect in screen space (offset by image position)
-                        let bbox_rect = egui::Rect::from_min_size(
-                            egui::pos2(
-                                image_rect.min.x + bbox_x,
-                                image_rect.min.y + bbox_y
-                            ),
-                            egui::vec2(bbox_width, bbox_height)
-                        );
-                        
-                        // Choose color based on class
-                        let (stroke_color, fill_color) = match detection.class_id {
-                            0 => (
-                                egui::Color32::from_rgb(100, 149, 237), // CT - Blue
-                                egui::Color32::from_rgba_unmultiplied(100, 149, 237, 30)
-                            ),
-                            1 => (
-                                egui::Color32::from_rgb(255, 140, 0),   // T - Orange
-                                egui::Color32::from_rgba_unmultiplied(255, 140, 0, 30)
-                            ),
-                            _ => (
-                                egui::Color32::GRAY,
-                                egui::Color32::from_rgba_unmultiplied(128, 128, 128, 30)
-                            ),
-                        };
-                        
-                        // Draw filled rectangle
-                        painter.rect_filled(bbox_rect, 0.0, fill_color);
-                        
-                        // Draw border
-                        painter.rect_stroke(
-                            bbox_rect,
-                            0.0,
-                            egui::Stroke::new(2.0, stroke_color)
-                        );
-                        
-                        // Draw label text
-                        let label_text = detection.class_name();
-                        let font_id = egui::FontId::proportional(14.0);
-                        let text_galley = painter.layout_no_wrap(
-                            label_text.to_string(),
-                            font_id,
-                            egui::Color32::WHITE
-                        );
-                        
-                        // Draw text background
-                        let text_pos = bbox_rect.min + egui::vec2(2.0, -18.0);
-                        let text_bg_rect = egui::Rect::from_min_size(
-                            text_pos,
-                            egui::vec2(text_galley.size().x + 6.0, 16.0)
-                        );
-                        painter.rect_filled(text_bg_rect, 2.0, stroke_color);
-                        
-                        // Draw text
-                        painter.galley(
-                            text_pos + egui::vec2(3.0, 0.0),
-                            text_galley,
-                            egui::Color32::WHITE
-                        );
-                    }
+                    ImageRenderer::draw_bounding_boxes(
+                        ui.painter(),
+                        label,
+                        image_rect,
+                        scaled_size
+                    );
                 }
             } else {
                 ui.centered_and_justified(|ui| {

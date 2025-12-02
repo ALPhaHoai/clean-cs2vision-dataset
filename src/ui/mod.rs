@@ -1,5 +1,6 @@
 pub mod panels;
 pub mod keyboard;
+pub mod image_renderer;
 
 // Re-export commonly used functions
 pub use panels::{
