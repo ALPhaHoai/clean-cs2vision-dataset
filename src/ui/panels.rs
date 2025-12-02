@@ -120,6 +120,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             )
             .clicked()
             {
+                println!("[BUTTON] Delete button clicked!");
                 app.delete_current_image();
             }
             
