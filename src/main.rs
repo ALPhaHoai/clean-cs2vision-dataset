@@ -2,6 +2,8 @@ use eframe::egui;
 use egui::{ColorImage, TextureHandle};
 use std::path::PathBuf;
 use std::fs;
+use std::sync::mpsc::{channel, Receiver};
+use std::thread;
 
 mod label_parser;
 use label_parser::{LabelInfo, parse_label_file};
@@ -21,6 +23,11 @@ pub struct BatchStats {
     pub total_scanned: usize,
     pub total_deleted: usize,
     pub current_progress: usize,
+}
+
+enum BatchProgressMessage {
+    Progress(BatchStats),
+    Complete(BatchStats),
 }
 
 
@@ -51,6 +58,7 @@ pub struct DatasetCleanerApp {
     pub show_batch_delete_confirm: bool,
     pub batch_processing: bool,
     pub batch_stats: Option<BatchStats>,
+    batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -74,6 +82,7 @@ impl Default for DatasetCleanerApp {
             show_batch_delete_confirm: false,
             batch_processing: false,
             batch_stats: None,
+            batch_progress_receiver: None,
         }
     }
 }
@@ -205,61 +214,68 @@ impl DatasetCleanerApp {
         }
     }
     
-    fn is_near_black(color: egui::Color32) -> bool {
-        image_analysis::is_near_black((color.r(), color.g(), color.b()))
-    }
-    
+
     pub fn process_black_images(&mut self) {
         if self.dataset.get_image_files().is_empty() {
             return;
         }
         
+        // Set batch processing flag
         self.batch_processing = true;
-        let mut stats = BatchStats::default();
         
-        // Get all image files in current split
+        // Initialize stats
+        let stats = BatchStats::default();
+        self.batch_stats = Some(stats);
+        
+        // Create a channel for progress updates
+        let (tx, rx) = channel::<BatchProgressMessage>();
+        self.batch_progress_receiver = Some(rx);
+        
+        // Clone the data needed for the background thread
         let image_files: Vec<PathBuf> = self.dataset.get_image_files().clone();
         
-        for (idx, img_path) in image_files.iter().enumerate() {
-            stats.current_progress = idx + 1;
-            stats.total_scanned += 1;
+        // Spawn background thread to process images
+        thread::spawn(move || {
+            let mut stats = BatchStats::default();
             
-            // Load and analyze image
-            if let Ok(img) = image::open(img_path) {
-                if let Some(dominant_color) = Self::calculate_dominant_color(&img) {
-                    if Self::is_near_black(dominant_color) {
-                        // Delete image file
-                        if fs::remove_file(img_path).is_ok() {
-                            // Delete corresponding label file
-                            if let Some(label_path) = self.get_label_path_for_image(img_path) {
-                                if label_path.exists() {
-                                    let _ = fs::remove_file(&label_path);
+            for (idx, img_path) in image_files.iter().enumerate() {
+                stats.current_progress = idx + 1;
+                stats.total_scanned += 1;
+                
+                // Load and analyze image
+                if let Ok(img) = image::open(img_path) {
+                    if let Some((r, g, b)) = image_analysis::calculate_dominant_color(&img) {
+                        if image_analysis::is_near_black((r, g, b)) {
+                            // Delete image file
+                            if fs::remove_file(img_path).is_ok() {
+                                // Delete corresponding label file
+                                let label_path = img_path.to_str().map(|img_str| {
+                                    let label_str = img_str
+                                        .replace("\\images\\", "\\labels\\")
+                                        .replace("/images/", "/labels/");
+                                    PathBuf::from(label_str).with_extension("txt")
+                                });
+                                
+                                if let Some(label_path) = label_path {
+                                    if label_path.exists() {
+                                        let _ = fs::remove_file(&label_path);
+                                    }
                                 }
+                                stats.total_deleted += 1;
                             }
-                            stats.total_deleted += 1;
                         }
                     }
                 }
+                
+                // Send progress update every 10 images or on last image
+                if idx % 10 == 0 || idx == image_files.len() - 1 {
+                    let _ = tx.send(BatchProgressMessage::Progress(stats.clone()));
+                }
             }
             
-            // Update stats
-            self.batch_stats = Some(stats.clone());
-        }
-        
-        // Reload the dataset to refresh file list
-        self.dataset.load_current_split();
-        
-        // Adjust current index if needed
-        if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
-            self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
-        }
-        
-        // Clear current texture to force reload
-        self.current_texture = None;
-        self.current_label = None;
-        self.dominant_color = None;
-        
-        self.batch_processing = false;
+            // Send completion message
+            let _ = tx.send(BatchProgressMessage::Complete(stats));
+        });
     }
     
     fn get_label_path_for_image(&self, img_path: &PathBuf) -> Option<PathBuf> {
@@ -274,6 +290,41 @@ impl DatasetCleanerApp {
 
 impl eframe::App for DatasetCleanerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll for batch processing updates
+        let mut complete_stats = None;
+        if let Some(receiver) = &self.batch_progress_receiver {
+            while let Ok(message) = receiver.try_recv() {
+                match message {
+                    BatchProgressMessage::Progress(stats) => {
+                        self.batch_stats = Some(stats);
+                    }
+                    BatchProgressMessage::Complete(stats) => {
+                        complete_stats = Some(stats);
+                    }
+                }
+            }
+        }
+        
+        // Handle completion outside of the borrow
+        if let Some(stats) = complete_stats {
+            self.batch_stats = Some(stats);
+            self.batch_processing = false;
+            self.batch_progress_receiver = None;
+            
+            // Reload the dataset to refresh file list
+            self.dataset.load_current_split();
+            
+            // Adjust current index if needed
+            if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
+                self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+            }
+            
+            // Clear current texture to force reload
+            self.current_texture = None;
+            self.current_label = None;
+            self.dominant_color = None;
+        }
+        
         ui::render_top_panel(self, ctx);
         ui::render_bottom_panel(self, ctx);
         

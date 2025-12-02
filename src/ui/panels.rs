@@ -95,9 +95,26 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(20.0);
             
             // Batch delete black images button
+            let button_text = if app.batch_processing {
+                if let Some(stats) = &app.batch_stats {
+                    let total = stats.total_scanned.max(stats.current_progress);
+                    let percentage = if total > 0 {
+                        (stats.current_progress as f32 / total as f32 * 100.0) as u32
+                    } else {
+                        0
+                    };
+                    format!("🧹 Processing... {}%", percentage)
+                } else {
+                    "🧹 Processing...".to_string()
+                }
+            } else {
+                "🧹 Remove Black Images".to_string()
+            };
+            
+            let button = egui::Button::new(&button_text).fill(egui::Color32::from_rgb(100, 100, 180));
             if ui.add_enabled(
                 !app.dataset.get_image_files().is_empty() && !app.batch_processing,
-                egui::Button::new("🧹 Remove Black Images").fill(egui::Color32::from_rgb(100, 100, 180)),
+                button,
             )
             .clicked()
             {
