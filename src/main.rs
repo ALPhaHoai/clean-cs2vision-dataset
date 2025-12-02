@@ -223,11 +223,8 @@ impl DatasetCleanerApp {
             PathBuf::from(label_str).with_extension("txt")
         })
     }
-}
-
-impl eframe::App for DatasetCleanerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Top panel with controls
+    
+    fn render_top_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("🗂 YOLO Dataset Cleaner");
@@ -279,8 +276,9 @@ impl eframe::App for DatasetCleanerApp {
                 }
             });
         });
-        
-        // Bottom panel with navigation and actions
+    }
+    
+    fn render_bottom_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
@@ -325,90 +323,90 @@ impl eframe::App for DatasetCleanerApp {
             });
             ui.add_space(10.0);
         });
-        
-        // Right panel for label information
-        if !self.image_files.is_empty() {
-            egui::SidePanel::right("label_panel")
-                .default_width(300.0)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    ui.heading("📊 Label Information");
+    }
+    
+    fn render_label_panel(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::right("label_panel")
+            .default_width(300.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("📊 Label Information");
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
+                
+                if let Some(label) = &self.current_label {
+                    // Detection count
+                    ui.label(egui::RichText::new(format!("🎯 Detections: {}", label.detections.len()))
+                        .strong()
+                        .size(16.0));
+                    
+                    ui.add_space(10.0);
+                    
+                    // Metadata
+                    if let Some(res) = &label.resolution {
+                        ui.label(format!("📐 Resolution: {}", res));
+                    }
+                    if let Some(map) = &label.map {
+                        ui.label(format!("🗺 Map: {}", map));
+                    }
+                    if let Some(time) = &label.timestamp {
+                        ui.label(format!("⏰ Timestamp: {}", time));
+                    }
+                    
                     ui.add_space(10.0);
                     ui.separator();
                     ui.add_space(10.0);
                     
-                    if let Some(label) = &self.current_label {
-                        // Detection count
-                        ui.label(egui::RichText::new(format!("🎯 Detections: {}", label.detections.len()))
+                    // Detection details
+                    if label.detections.is_empty() {
+                        ui.label(egui::RichText::new("No players detected")
+                            .italics()
+                            .color(egui::Color32::GRAY));
+                    } else {
+                        ui.label(egui::RichText::new("Detected Players:")
                             .strong()
-                            .size(16.0));
+                            .size(14.0));
+                        ui.add_space(5.0);
                         
-                        ui.add_space(10.0);
-                        
-                        // Metadata
-                        if let Some(res) = &label.resolution {
-                            ui.label(format!("📐 Resolution: {}", res));
-                        }
-                        if let Some(map) = &label.map {
-                            ui.label(format!("🗺 Map: {}", map));
-                        }
-                        if let Some(time) = &label.timestamp {
-                            ui.label(format!("⏰ Timestamp: {}", time));
-                        }
-                        
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(10.0);
-                        
-                        // Detection details
-                        if label.detections.is_empty() {
-                            ui.label(egui::RichText::new("No players detected")
-                                .italics()
-                                .color(egui::Color32::GRAY));
-                        } else {
-                            ui.label(egui::RichText::new("Detected Players:")
-                                .strong()
-                                .size(14.0));
-                            ui.add_space(5.0);
-                            
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                for (i, detection) in label.detections.iter().enumerate() {
-                                    ui.group(|ui| {
-                                        ui.horizontal(|ui| {
-                                            let class_color = match detection.class_id {
-                                                0 => egui::Color32::from_rgb(100, 149, 237), // CT - Blue
-                                                1 => egui::Color32::from_rgb(255, 140, 0),   // T - Orange
-                                                _ => egui::Color32::GRAY,
-                                            };
-                                            
-                                            ui.label(egui::RichText::new(format!("#{}", i + 1))
-                                                .strong());
-                                            ui.label(egui::RichText::new(detection.class_name())
-                                                .strong()
-                                                .color(class_color));
-                                        });
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for (i, detection) in label.detections.iter().enumerate() {
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        let class_color = match detection.class_id {
+                                            0 => egui::Color32::from_rgb(100, 149, 237), // CT - Blue
+                                            1 => egui::Color32::from_rgb(255, 140, 0),   // T - Orange
+                                            _ => egui::Color32::GRAY,
+                                        };
                                         
-                                        ui.add_space(5.0);
-                                        
-                                        ui.label(format!("Center: ({:.4}, {:.4})", 
-                                            detection.x_center, detection.y_center));
-                                        ui.label(format!("Size: {:.4} × {:.4}", 
-                                            detection.width, detection.height));
+                                        ui.label(egui::RichText::new(format!("#{}", i + 1))
+                                            .strong());
+                                        ui.label(egui::RichText::new(detection.class_name())
+                                            .strong()
+                                            .color(class_color));
                                     });
                                     
                                     ui.add_space(5.0);
-                                }
-                            });
-                        }
-                    } else {
-                        ui.label(egui::RichText::new("No label file found")
-                            .italics()
-                            .color(egui::Color32::GRAY));
+                                    
+                                    ui.label(format!("Center: ({:.4}, {:.4})", 
+                                        detection.x_center, detection.y_center));
+                                    ui.label(format!("Size: {:.4} × {:.4}", 
+                                        detection.width, detection.height));
+                                });
+                                
+                                ui.add_space(5.0);
+                            }
+                        });
                     }
-                });
-        }
-        
-        // Central panel with image display
+                } else {
+                    ui.label(egui::RichText::new("No label file found")
+                        .italics()
+                        .color(egui::Color32::GRAY));
+                }
+            });
+    }
+    
+    fn render_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.image_files.is_empty() {
                 ui.centered_and_justified(|ui| {
@@ -531,8 +529,9 @@ impl eframe::App for DatasetCleanerApp {
                 }
             }
         });
-        
-        // Delete confirmation dialog
+    }
+    
+    fn render_delete_confirmation(&mut self, ctx: &egui::Context) {
         if self.show_delete_confirm {
             egui::Window::new("⚠ Confirm Deletion")
                 .collapsible(false)
@@ -560,8 +559,9 @@ impl eframe::App for DatasetCleanerApp {
                     });
                 });
         }
-        
-        // Keyboard shortcuts
+    }
+    
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
             self.next_image();
         }
@@ -573,5 +573,20 @@ impl eframe::App for DatasetCleanerApp {
                 self.show_delete_confirm = true;
             }
         }
+    }
+}
+
+impl eframe::App for DatasetCleanerApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render_top_panel(ctx);
+        self.render_bottom_panel(ctx);
+        
+        if !self.image_files.is_empty() {
+            self.render_label_panel(ctx);
+        }
+        
+        self.render_central_panel(ctx);
+        self.render_delete_confirmation(ctx);
+        self.handle_keyboard_shortcuts(ctx);
     }
 }
