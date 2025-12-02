@@ -6,6 +6,8 @@ const UNDO_DURATION_SECS: u64 = 10;
 
 /// Render the toast notification for undo delete
 pub fn render_toast_notification(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
+    let mut should_undo = false;
+    
     if let Some(undo_state) = &app.undo_state {
         let elapsed = undo_state.deleted_at.elapsed();
         let remaining = Duration::from_secs(UNDO_DURATION_SECS)
@@ -62,13 +64,18 @@ pub fn render_toast_notification(app: &mut DatasetCleanerApp, ctx: &egui::Contex
                         .fill(egui::Color32::from_rgb(70, 130, 220))
                     )
                     .clicked() {
-                        app.undo_delete();
+                        should_undo = true;
                     }
                 });
             });
         
         // Request repaint to update timer
         ctx.request_repaint();
+    }
+    
+    // Handle undo outside of the borrow
+    if should_undo {
+        app.undo_delete();
     }
 }
 

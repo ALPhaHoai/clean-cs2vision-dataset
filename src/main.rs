@@ -5,7 +5,7 @@ use std::fs;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 
 mod label_parser;
 use label_parser::{LabelInfo, parse_label_file};
@@ -86,7 +86,7 @@ impl Default for DatasetCleanerApp {
             dataset.load(config.default_dataset_path.clone());
         }
         
-        Self {
+        let mut app = Self {
             dataset,
             current_index: 0,
             current_texture: None,
@@ -100,7 +100,14 @@ impl Default for DatasetCleanerApp {
             batch_progress_receiver: None,
             batch_cancel_flag: None,
             undo_state: None,
+        };
+        
+        // Parse label for the first image if dataset was loaded
+        if !app.dataset.get_image_files().is_empty() {
+            app.parse_label_file();
         }
+        
+        app
     }
 }
 
@@ -111,6 +118,8 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
+        // Parse label file for the first image
+        self.parse_label_file();
     }
     
     pub fn change_split(&mut self, new_split: DatasetSplit) {
@@ -119,6 +128,8 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
+        // Parse label file for the first image
+        self.parse_label_file();
     }
     
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
@@ -258,6 +269,9 @@ impl DatasetCleanerApp {
         self.current_label = None;
         self.dominant_color = None;
         self.show_delete_confirm = false;
+        
+        // Parse the label for the new current image
+        self.parse_label_file();
     }
     
     pub fn undo_delete(&mut self) {
@@ -292,6 +306,9 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            
+            // Parse the label for the current/restored image
+            self.parse_label_file();
         }
     }
     
@@ -321,6 +338,8 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            // Immediately parse the label file to ensure synchronization
+            self.parse_label_file();
         }
     }
     
@@ -330,6 +349,8 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            // Immediately parse the label file to ensure synchronization
+            self.parse_label_file();
         }
     }
     
@@ -466,6 +487,9 @@ impl eframe::App for DatasetCleanerApp {
                 self.current_texture = None;
                 self.current_label = None;
                 self.dominant_color = None;
+                
+                // Parse the label for the current image
+                self.parse_label_file();
             } else {
                 // For cancelled operations, still reload but keep showing the dialog
                 self.dataset.load_current_split();
@@ -479,6 +503,9 @@ impl eframe::App for DatasetCleanerApp {
                 self.current_texture = None;
                 self.current_label = None;
                 self.dominant_color = None;
+                
+                // Parse the label for the current image
+                self.parse_label_file();
             }
         }
         

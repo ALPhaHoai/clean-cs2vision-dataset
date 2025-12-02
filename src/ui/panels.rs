@@ -268,11 +268,6 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 app.load_current_image(ctx);
             }
             
-            // Parse label file if not already parsed
-            if app.current_label.is_none() {
-                app.parse_label_file();
-            }
-            
             // Display the image
             if let Some(texture) = &app.current_texture {
                 let available_size = ui.available_size();
