@@ -799,7 +799,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clean-dataset"
+name = "clean-cs2vision-dataset"
 version = "0.1.0"
 dependencies = [
  "eframe",

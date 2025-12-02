@@ -39,6 +39,7 @@ pub struct DatasetCleanerApp {
     pub current_label: Option<LabelInfo>,
     pub show_delete_confirm: bool,
     pub config: AppConfig,
+    pub dominant_color: Option<egui::Color32>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -58,6 +59,7 @@ impl Default for DatasetCleanerApp {
             current_label: None,
             show_delete_confirm: false,
             config,
+            dominant_color: None,
         }
     }
 }
@@ -68,6 +70,7 @@ impl DatasetCleanerApp {
         self.current_index = 0;
         self.current_texture = None;
         self.current_label = None;
+        self.dominant_color = None;
     }
     
     pub fn change_split(&mut self, new_split: DatasetSplit) {
@@ -75,6 +78,7 @@ impl DatasetCleanerApp {
         self.current_index = 0;
         self.current_texture = None;
         self.current_label = None;
+        self.dominant_color = None;
     }
     
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
@@ -100,7 +104,81 @@ impl DatasetCleanerApp {
                 egui::TextureOptions::LINEAR,
             );
             
+            // Calculate dominant color
+            self.dominant_color = Self::calculate_dominant_color(&img);
+            
             self.current_texture = Some(texture);
+        }
+    }
+    
+    fn calculate_dominant_color(img: &image::DynamicImage) -> Option<egui::Color32> {
+        use kmeans_colors::get_kmeans;
+        use palette::{FromColor, Lab, Srgb};
+        
+        // Convert image to RGB
+        let img_rgb = img.to_rgb8();
+        let (width, height) = img_rgb.dimensions();
+        
+        // Sample pixels (to avoid processing too many pixels)
+        let max_samples = 10000;
+        let step = ((width * height) as f32 / max_samples as f32).sqrt().ceil() as u32;
+        let step = step.max(1);
+        
+        let mut lab_pixels: Vec<Lab> = Vec::new();
+        
+        for y in (0..height).step_by(step as usize) {
+            for x in (0..width).step_by(step as usize) {
+                let pixel = img_rgb.get_pixel(x, y);
+                let rgb = Srgb::new(
+                    pixel[0] as f32 / 255.0,
+                    pixel[1] as f32 / 255.0,
+                    pixel[2] as f32 / 255.0,
+                );
+                lab_pixels.push(Lab::from_color(rgb));
+            }
+        }
+        
+        if lab_pixels.is_empty() {
+            return None;
+        }
+        
+        // Run k-means with k=3 to find dominant colors
+        let k = 3;
+        let max_iter = 20;
+        let converge = 1.0;
+        let verbose = false;
+        let seed = 0;
+        
+        let result = get_kmeans(
+            k,
+            max_iter,
+            converge,
+            verbose,
+            &lab_pixels,
+            seed,
+        );
+        
+        // Get the centroid with the most members (dominant color)
+        let mut centroids_with_counts: Vec<_> = result.centroids
+            .iter()
+            .enumerate()
+            .map(|(i, centroid)| {
+                let count = result.indices.iter().filter(|&&idx| idx == i as u8).count();
+                (centroid, count)
+            })
+            .collect();
+        
+        centroids_with_counts.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        if let Some((dominant_lab, _)) = centroids_with_counts.first() {
+            let rgb: Srgb = Srgb::from_color(**dominant_lab);
+            let r = (rgb.red * 255.0).clamp(0.0, 255.0) as u8;
+            let g = (rgb.green * 255.0).clamp(0.0, 255.0) as u8;
+            let b = (rgb.blue * 255.0).clamp(0.0, 255.0) as u8;
+            
+            Some(egui::Color32::from_rgb(r, g, b))
+        } else {
+            None
         }
     }
     
@@ -166,6 +244,7 @@ impl DatasetCleanerApp {
             self.current_index += 1;
             self.current_texture = None;
             self.current_label = None;
+            self.dominant_color = None;
         }
     }
     
@@ -174,6 +253,7 @@ impl DatasetCleanerApp {
             self.current_index -= 1;
             self.current_texture = None;
             self.current_label = None;
+            self.dominant_color = None;
         }
     }
     

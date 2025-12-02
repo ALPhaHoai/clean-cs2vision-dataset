@@ -116,6 +116,41 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(10.0);
             
+            // Display dominant color
+            if let Some(color) = app.dominant_color {
+                ui.label(egui::RichText::new("🎨 Dominant Color")
+                    .strong()
+                    .size(16.0));
+                ui.add_space(5.0);
+                
+                ui.horizontal(|ui| {
+                    // Color swatch
+                    let (rect, _response) = ui.allocate_exact_size(
+                        egui::vec2(60.0, 40.0),
+                        egui::Sense::hover()
+                    );
+                    ui.painter().rect_filled(rect, 4.0, color);
+                    ui.painter().rect_stroke(
+                        rect,
+                        4.0,
+                        egui::Stroke::new(2.0, egui::Color32::from_gray(128))
+                    );
+                    
+                    ui.add_space(10.0);
+                    
+                    // RGB values
+                    ui.vertical(|ui| {
+                        ui.label(format!("R: {}", color.r()));
+                        ui.label(format!("G: {}", color.g()));
+                        ui.label(format!("B: {}", color.b()));
+                    });
+                });
+                
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
+            }
+            
             if let Some(label) = &app.current_label {
                 // Detection count
                 ui.label(egui::RichText::new(format!("🎯 Detections: {}", label.detections.len()))
