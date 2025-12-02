@@ -48,7 +48,7 @@ cargo build --release
 cargo run --release
 ```
 
-The compiled binary will be available in `target/release/clean-dataset` (or `clean-dataset.exe` on Windows).
+The compiled binary will be available in `target/release/clean-cs2vision-dataset` (or `clean-cs2vision-dataset.exe` on Windows).
 
 ## Usage
 
@@ -135,7 +135,7 @@ This project uses the following Rust crates:
 ### Project Structure
 
 ```
-clean-dataset/
+clean-cs2vision-dataset/
 ├── src/
 │   ├── main.rs              # Application entry point and core logic
 │   ├── config.rs            # Centralized configuration management
