@@ -89,7 +89,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             )
             .clicked()
             {
-                app.show_delete_confirm = true;
+                app.delete_current_image();
             }
             
             ui.add_space(20.0);

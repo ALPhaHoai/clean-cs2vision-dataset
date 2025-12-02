@@ -2,6 +2,7 @@ pub mod panels;
 pub mod keyboard;
 pub mod image_renderer;
 pub mod batch_dialogs;
+pub mod toast;
 
 // Re-export commonly used functions
 pub use panels::{
@@ -18,3 +19,5 @@ pub use batch_dialogs::{
     render_batch_delete_confirmation,
     render_batch_progress,
 };
+
+pub use toast::render_toast_notification;

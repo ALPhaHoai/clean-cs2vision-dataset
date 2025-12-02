@@ -5,6 +5,7 @@ use std::fs;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
+use std::time::{Instant, Duration};
 
 mod label_parser;
 use label_parser::{LabelInfo, parse_label_file};
@@ -30,6 +31,16 @@ enum BatchProgressMessage {
     Progress(BatchStats),
     Complete(BatchStats),
     Cancelled(BatchStats),
+}
+
+#[derive(Clone)]
+pub struct UndoState {
+    pub image_path: PathBuf,
+    pub label_path: Option<PathBuf>,
+    pub image_filename: String,
+    pub deleted_at: Instant,
+    pub temp_image_path: PathBuf,
+    pub temp_label_path: Option<PathBuf>,
 }
 
 
@@ -62,6 +73,7 @@ pub struct DatasetCleanerApp {
     pub batch_stats: Option<BatchStats>,
     batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
     batch_cancel_flag: Option<Arc<AtomicBool>>,
+    pub undo_state: Option<UndoState>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -87,6 +99,7 @@ impl Default for DatasetCleanerApp {
             batch_stats: None,
             batch_progress_receiver: None,
             batch_cancel_flag: None,
+            undo_state: None,
         }
     }
 }
@@ -169,23 +182,68 @@ impl DatasetCleanerApp {
             return;
         }
         
-        let img_path = &self.dataset.get_image_files()[self.current_index];
+        let img_path = &self.dataset.get_image_files()[self.current_index].clone();
         
-        // Delete the image file
-        if let Err(e) = fs::remove_file(img_path) {
-            eprintln!("Error deleting image: {}", e);
+        // Get image filename for display
+        let image_filename = img_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        // Get corresponding label file path
+        let label_path = self.get_label_path_for_image(img_path);
+        
+        // Create temp directory in system temp
+        let temp_dir = std::env::temp_dir().join("yolo_dataset_cleaner_undo");
+        if let Err(e) = fs::create_dir_all(&temp_dir) {
+            eprintln!("Error creating temp directory: {}", e);
             return;
         }
         
-        // Delete the corresponding label file (.txt) from labels folder
-        let label_path = self.get_label_path_for_image(img_path)
-            .unwrap_or_else(|| img_path.with_extension("txt"));
+        // Generate unique temp paths using timestamp
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         
-        if label_path.exists() {
-            if let Err(e) = fs::remove_file(&label_path) {
-                eprintln!("Error deleting label: {}", e);
-            }
+        let temp_image_name = format!("{}_{}", timestamp, image_filename);
+        let temp_image_path = temp_dir.join(&temp_image_name);
+        
+        // Move image to temp location
+        if let Err(e) = fs::rename(img_path, &temp_image_path) {
+            eprintln!("Error moving image to temp: {}", e);
+            return;
         }
+        
+        // Move label file to temp location if it exists
+        let temp_label_path = if let Some(ref lbl_path) = label_path {
+            if lbl_path.exists() {
+                let temp_label_name = format!("{}_{}", timestamp, 
+                    lbl_path.file_name().and_then(|n| n.to_str()).unwrap_or("label.txt"));
+                let temp_lbl = temp_dir.join(&temp_label_name);
+                
+                if fs::rename(lbl_path, &temp_lbl).is_ok() {
+                    Some(temp_lbl)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        // Create undo state
+        self.undo_state = Some(UndoState {
+            image_path: img_path.clone(),
+            label_path,
+            image_filename,
+            deleted_at: Instant::now(),
+            temp_image_path,
+            temp_label_path,
+        });
         
         // Reload the current split to refresh the file list
         self.dataset.load_current_split();
@@ -197,8 +255,65 @@ impl DatasetCleanerApp {
         
         // Clear current texture
         self.current_texture = None;
+        self.current_label = None;
+        self.dominant_color = None;
         self.show_delete_confirm = false;
     }
+    
+    pub fn undo_delete(&mut self) {
+        if let Some(undo_state) = self.undo_state.take() {
+            // Restore image file
+            if let Err(e) = fs::rename(&undo_state.temp_image_path, &undo_state.image_path) {
+                eprintln!("Error restoring image: {}", e);
+                // Put undo_state back if restore failed
+                self.undo_state = Some(undo_state);
+                return;
+            }
+            
+            // Restore label file if it exists
+            if let (Some(temp_label), Some(orig_label)) = 
+                (&undo_state.temp_label_path, &undo_state.label_path) {
+                if let Err(e) = fs::rename(temp_label, orig_label) {
+                    eprintln!("Error restoring label: {}", e);
+                }
+            }
+            
+            // Reload the dataset to refresh file list
+            self.dataset.load_current_split();
+            
+            // Try to find the restored image and navigate to it
+            if let Some(index) = self.dataset.get_image_files()
+                .iter()
+                .position(|p| p == &undo_state.image_path) {
+                self.current_index = index;
+            }
+            
+            // Clear current texture to force reload
+            self.current_texture = None;
+            self.current_label = None;
+            self.dominant_color = None;
+        }
+    }
+    
+    pub fn finalize_delete(&mut self) {
+        if let Some(undo_state) = self.undo_state.take() {
+            // Permanently delete temp files
+            if undo_state.temp_image_path.exists() {
+                if let Err(e) = fs::remove_file(&undo_state.temp_image_path) {
+                    eprintln!("Error deleting temp image: {}", e);
+                }
+            }
+            
+            if let Some(temp_label) = &undo_state.temp_label_path {
+                if temp_label.exists() {
+                    if let Err(e) = fs::remove_file(temp_label) {
+                        eprintln!("Error deleting temp label: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
     
     pub fn next_image(&mut self) {
         if !self.dataset.get_image_files().is_empty() && self.current_index < self.dataset.get_image_files().len() - 1 {
@@ -378,6 +493,7 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_delete_confirmation(self, ctx);
         ui::render_batch_delete_confirmation(self, ctx);
         ui::render_batch_progress(self, ctx);
+        ui::render_toast_notification(self, ctx);
         ui::handle_keyboard_shortcuts(self, ctx);
     }
 }
