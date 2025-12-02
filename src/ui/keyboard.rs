@@ -11,7 +11,7 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
         if !app.dataset.get_image_files().is_empty() {
-            app.show_delete_confirm = true;
+            app.delete_current_image();
         }
     }
 }

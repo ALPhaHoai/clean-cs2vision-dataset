@@ -10,7 +10,6 @@ pub use panels::{
     render_bottom_panel,
     render_label_panel,
     render_central_panel,
-    render_delete_confirmation,
 };
 
 pub use keyboard::handle_keyboard_shortcuts;

@@ -65,7 +65,6 @@ pub struct DatasetCleanerApp {
     pub current_index: usize,
     pub current_texture: Option<TextureHandle>,
     pub current_label: Option<LabelInfo>,
-    pub show_delete_confirm: bool,
     pub config: AppConfig,
     pub dominant_color: Option<egui::Color32>,
     pub show_batch_delete_confirm: bool,
@@ -91,7 +90,6 @@ impl Default for DatasetCleanerApp {
             current_index: 0,
             current_texture: None,
             current_label: None,
-            show_delete_confirm: false,
             config,
             dominant_color: None,
             show_batch_delete_confirm: false,
@@ -268,7 +266,6 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
-        self.show_delete_confirm = false;
         
         // Parse the label for the new current image
         self.parse_label_file();
@@ -517,7 +514,6 @@ impl eframe::App for DatasetCleanerApp {
         }
         
         ui::render_central_panel(self, ctx);
-        ui::render_delete_confirmation(self, ctx);
         ui::render_batch_delete_confirmation(self, ctx);
         ui::render_batch_progress(self, ctx);
         ui::render_toast_notification(self, ctx);

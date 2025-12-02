@@ -308,33 +308,4 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     });
 }
 
-/// Render the delete confirmation dialog
-pub fn render_delete_confirmation(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
-    if app.show_delete_confirm {
-        egui::Window::new("⚠ Confirm Deletion")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.label("Are you sure you want to delete this image and its label file?");
-                ui.add_space(10.0);
-                
-                if !app.dataset.get_image_files().is_empty() {
-                    if let Some(filename) = app.dataset.get_image_files()[app.current_index].file_name() {
-                        ui.label(format!("File: {}", filename.to_string_lossy()));
-                    }
-                }
-                
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.button("✓ Yes, Delete").clicked() {
-                        app.delete_current_image();
-                    }
-                    
-                    if ui.button("✗ Cancel").clicked() {
-                        app.show_delete_confirm = false;
-                    }
-                });
-            });
-    }
-}
+
