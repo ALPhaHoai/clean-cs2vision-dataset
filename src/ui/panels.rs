@@ -121,7 +121,15 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 app.show_batch_delete_confirm = true;
             }
             
+            // Cancel button (only visible during batch processing)
+            if app.batch_processing {
+                if ui.button("❌ Cancel").clicked() {
+                    app.cancel_batch_processing();
+                }
+            }
+            
             ui.add_space(20.0);
+
             
             // Current file name
             if !app.dataset.get_image_files().is_empty() {

@@ -3,6 +3,7 @@ use egui::{ColorImage, TextureHandle};
 use std::path::PathBuf;
 use std::fs;
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 
 mod label_parser;
@@ -28,6 +29,7 @@ pub struct BatchStats {
 enum BatchProgressMessage {
     Progress(BatchStats),
     Complete(BatchStats),
+    Cancelled(BatchStats),
 }
 
 
@@ -59,6 +61,7 @@ pub struct DatasetCleanerApp {
     pub batch_processing: bool,
     pub batch_stats: Option<BatchStats>,
     batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
+    batch_cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -83,6 +86,7 @@ impl Default for DatasetCleanerApp {
             batch_processing: false,
             batch_stats: None,
             batch_progress_receiver: None,
+            batch_cancel_flag: None,
         }
     }
 }
@@ -231,6 +235,10 @@ impl DatasetCleanerApp {
         let (tx, rx) = channel::<BatchProgressMessage>();
         self.batch_progress_receiver = Some(rx);
         
+        // Create cancellation flag
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        self.batch_cancel_flag = Some(cancel_flag.clone());
+        
         // Clone the data needed for the background thread
         let image_files: Vec<PathBuf> = self.dataset.get_image_files().clone();
         
@@ -239,6 +247,12 @@ impl DatasetCleanerApp {
             let mut stats = BatchStats::default();
             
             for (idx, img_path) in image_files.iter().enumerate() {
+                // Check for cancellation
+                if cancel_flag.load(Ordering::Relaxed) {
+                    let _ = tx.send(BatchProgressMessage::Cancelled(stats));
+                    return;
+                }
+                
                 stats.current_progress = idx + 1;
                 stats.total_scanned += 1;
                 
@@ -278,6 +292,12 @@ impl DatasetCleanerApp {
         });
     }
     
+    pub fn cancel_batch_processing(&mut self) {
+        if let Some(flag) = &self.batch_cancel_flag {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+    
     fn get_label_path_for_image(&self, img_path: &PathBuf) -> Option<PathBuf> {
         img_path.to_str().map(|img_str| {
             let label_str = img_str
@@ -292,6 +312,7 @@ impl eframe::App for DatasetCleanerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll for batch processing updates
         let mut complete_stats = None;
+        let mut cancelled = false;
         if let Some(receiver) = &self.batch_progress_receiver {
             while let Ok(message) = receiver.try_recv() {
                 match message {
@@ -301,28 +322,49 @@ impl eframe::App for DatasetCleanerApp {
                     BatchProgressMessage::Complete(stats) => {
                         complete_stats = Some(stats);
                     }
+                    BatchProgressMessage::Cancelled(stats) => {
+                        complete_stats = Some(stats);
+                        cancelled = true;
+                    }
                 }
             }
         }
         
-        // Handle completion outside of the borrow
+        // Handle completion or cancellation outside of the borrow
         if let Some(stats) = complete_stats {
             self.batch_stats = Some(stats);
             self.batch_processing = false;
             self.batch_progress_receiver = None;
+            self.batch_cancel_flag = None;
             
-            // Reload the dataset to refresh file list
-            self.dataset.load_current_split();
-            
-            // Adjust current index if needed
-            if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
-                self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+            // Don't close the dialog immediately if cancelled, let user see the stats
+            if !cancelled {
+                // Reload the dataset to refresh file list
+                self.dataset.load_current_split();
+                
+                // Adjust current index if needed
+                if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
+                    self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+                }
+                
+                // Clear current texture to force reload
+                self.current_texture = None;
+                self.current_label = None;
+                self.dominant_color = None;
+            } else {
+                // For cancelled operations, still reload but keep showing the dialog
+                self.dataset.load_current_split();
+                
+                // Adjust current index if needed
+                if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
+                    self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+                }
+                
+                // Clear current texture to force reload
+                self.current_texture = None;
+                self.current_label = None;
+                self.dominant_color = None;
             }
-            
-            // Clear current texture to force reload
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
         }
         
         ui::render_top_panel(self, ctx);
