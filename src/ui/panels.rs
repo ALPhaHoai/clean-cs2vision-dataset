@@ -47,11 +47,42 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             }
             
             if !app.dataset.get_image_files().is_empty() {
-                ui.label(format!(
-                    "Image {} of {}",
-                    app.current_index + 1,
-                    app.dataset.get_image_files().len()
-                ));
+                ui.horizontal(|ui| {
+                    ui.label("Image");
+                    
+                    let current_display = (app.current_index + 1).to_string();
+                    
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut app.manual_index_input)
+                            .desired_width(60.0)
+                    );
+                    
+                    // Handle manual input when user presses Enter FIRST before syncing
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if let Ok(new_index) = app.manual_index_input.trim().parse::<usize>() {
+                            if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
+                                app.current_index = new_index - 1;
+                                app.current_texture = None;
+                                app.current_label = None;
+                                app.dominant_color = None;
+                                app.parse_label_file();
+                                app.manual_index_input = new_index.to_string();
+                            } else {
+                                // Reset to current valid value if out of range
+                                app.manual_index_input = current_display.clone();
+                            }
+                        } else {
+                            // Reset to current valid value if invalid input
+                            app.manual_index_input = current_display.clone();
+                        }
+                    } 
+                    // Sync the input text with current index when not focused and not pressing Enter
+                    else if !response.has_focus() && app.manual_index_input != current_display {
+                        app.manual_index_input = current_display;
+                    }
+                    
+                    ui.label(format!("of {}", app.dataset.get_image_files().len()));
+                });
             }
         });
     });

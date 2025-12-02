@@ -73,6 +73,7 @@ pub struct DatasetCleanerApp {
     batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
     batch_cancel_flag: Option<Arc<AtomicBool>>,
     pub undo_state: Option<UndoState>,
+    pub manual_index_input: String,
 }
 
 impl Default for DatasetCleanerApp {
@@ -98,6 +99,7 @@ impl Default for DatasetCleanerApp {
             batch_progress_receiver: None,
             batch_cancel_flag: None,
             undo_state: None,
+            manual_index_input: String::from("1"),
         };
         
         // Parse label for the first image if dataset was loaded
