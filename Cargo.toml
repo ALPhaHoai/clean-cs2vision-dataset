@@ -1,0 +1,13 @@
+[package]
+name = "clean-dataset"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+image = "0.25"
+kmeans_colors = "0.6"
+palette = "0.7"
+eframe = "0.29"
+egui = "0.29"
+egui_extras = { version = "0.29", features = ["image"] }
+rfd = "0.15"
