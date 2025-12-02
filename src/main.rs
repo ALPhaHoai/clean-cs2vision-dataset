@@ -12,8 +12,16 @@ use dataset::{Dataset, DatasetSplit};
 mod config;
 use config::AppConfig;
 
+mod image_analysis;
+
 mod ui;
 
+#[derive(Default, Clone)]
+pub struct BatchStats {
+    pub total_scanned: usize,
+    pub total_deleted: usize,
+    pub current_progress: usize,
+}
 
 
 fn main() -> Result<(), eframe::Error> {
@@ -40,6 +48,9 @@ pub struct DatasetCleanerApp {
     pub show_delete_confirm: bool,
     pub config: AppConfig,
     pub dominant_color: Option<egui::Color32>,
+    pub show_batch_delete_confirm: bool,
+    pub batch_processing: bool,
+    pub batch_stats: Option<BatchStats>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -60,6 +71,9 @@ impl Default for DatasetCleanerApp {
             show_delete_confirm: false,
             config,
             dominant_color: None,
+            show_batch_delete_confirm: false,
+            batch_processing: false,
+            batch_stats: None,
         }
     }
 }
@@ -112,74 +126,8 @@ impl DatasetCleanerApp {
     }
     
     fn calculate_dominant_color(img: &image::DynamicImage) -> Option<egui::Color32> {
-        use kmeans_colors::get_kmeans;
-        use palette::{FromColor, Lab, Srgb};
-        
-        // Convert image to RGB
-        let img_rgb = img.to_rgb8();
-        let (width, height) = img_rgb.dimensions();
-        
-        // Sample pixels (to avoid processing too many pixels)
-        let max_samples = 10000;
-        let step = ((width * height) as f32 / max_samples as f32).sqrt().ceil() as u32;
-        let step = step.max(1);
-        
-        let mut lab_pixels: Vec<Lab> = Vec::new();
-        
-        for y in (0..height).step_by(step as usize) {
-            for x in (0..width).step_by(step as usize) {
-                let pixel = img_rgb.get_pixel(x, y);
-                let rgb = Srgb::new(
-                    pixel[0] as f32 / 255.0,
-                    pixel[1] as f32 / 255.0,
-                    pixel[2] as f32 / 255.0,
-                );
-                lab_pixels.push(Lab::from_color(rgb));
-            }
-        }
-        
-        if lab_pixels.is_empty() {
-            return None;
-        }
-        
-        // Run k-means with k=3 to find dominant colors
-        let k = 3;
-        let max_iter = 20;
-        let converge = 1.0;
-        let verbose = false;
-        let seed = 0;
-        
-        let result = get_kmeans(
-            k,
-            max_iter,
-            converge,
-            verbose,
-            &lab_pixels,
-            seed,
-        );
-        
-        // Get the centroid with the most members (dominant color)
-        let mut centroids_with_counts: Vec<_> = result.centroids
-            .iter()
-            .enumerate()
-            .map(|(i, centroid)| {
-                let count = result.indices.iter().filter(|&&idx| idx == i as u8).count();
-                (centroid, count)
-            })
-            .collect();
-        
-        centroids_with_counts.sort_by(|a, b| b.1.cmp(&a.1));
-        
-        if let Some((dominant_lab, _)) = centroids_with_counts.first() {
-            let rgb: Srgb = Srgb::from_color(**dominant_lab);
-            let r = (rgb.red * 255.0).clamp(0.0, 255.0) as u8;
-            let g = (rgb.green * 255.0).clamp(0.0, 255.0) as u8;
-            let b = (rgb.blue * 255.0).clamp(0.0, 255.0) as u8;
-            
-            Some(egui::Color32::from_rgb(r, g, b))
-        } else {
-            None
-        }
+        image_analysis::calculate_dominant_color(img)
+            .map(|(r, g, b)| egui::Color32::from_rgb(r, g, b))
     }
     
     pub fn parse_label_file(&mut self) {
@@ -257,6 +205,63 @@ impl DatasetCleanerApp {
         }
     }
     
+    fn is_near_black(color: egui::Color32) -> bool {
+        image_analysis::is_near_black((color.r(), color.g(), color.b()))
+    }
+    
+    pub fn process_black_images(&mut self) {
+        if self.dataset.get_image_files().is_empty() {
+            return;
+        }
+        
+        self.batch_processing = true;
+        let mut stats = BatchStats::default();
+        
+        // Get all image files in current split
+        let image_files: Vec<PathBuf> = self.dataset.get_image_files().clone();
+        
+        for (idx, img_path) in image_files.iter().enumerate() {
+            stats.current_progress = idx + 1;
+            stats.total_scanned += 1;
+            
+            // Load and analyze image
+            if let Ok(img) = image::open(img_path) {
+                if let Some(dominant_color) = Self::calculate_dominant_color(&img) {
+                    if Self::is_near_black(dominant_color) {
+                        // Delete image file
+                        if fs::remove_file(img_path).is_ok() {
+                            // Delete corresponding label file
+                            if let Some(label_path) = self.get_label_path_for_image(img_path) {
+                                if label_path.exists() {
+                                    let _ = fs::remove_file(&label_path);
+                                }
+                            }
+                            stats.total_deleted += 1;
+                        }
+                    }
+                }
+            }
+            
+            // Update stats
+            self.batch_stats = Some(stats.clone());
+        }
+        
+        // Reload the dataset to refresh file list
+        self.dataset.load_current_split();
+        
+        // Adjust current index if needed
+        if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
+            self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+        }
+        
+        // Clear current texture to force reload
+        self.current_texture = None;
+        self.current_label = None;
+        self.dominant_color = None;
+        
+        self.batch_processing = false;
+    }
+    
     fn get_label_path_for_image(&self, img_path: &PathBuf) -> Option<PathBuf> {
         img_path.to_str().map(|img_str| {
             let label_str = img_str
@@ -278,6 +283,8 @@ impl eframe::App for DatasetCleanerApp {
         
         ui::render_central_panel(self, ctx);
         ui::render_delete_confirmation(self, ctx);
+        ui::render_batch_delete_confirmation(self, ctx);
+        ui::render_batch_progress(self, ctx);
         ui::handle_keyboard_shortcuts(self, ctx);
     }
 }

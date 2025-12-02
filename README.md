@@ -19,9 +19,16 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 
 ### 🗂️ Dataset Management
 - **Split Navigation**: Switch between train, validation, and test splits
-- **Batch Deletion**: Delete images and their corresponding label files with a single action
+- **Individual Deletion**: Delete images and their corresponding label files with a single action
 - **Confirmation Dialog**: Prevents accidental deletions with a confirmation prompt
 - **Organized Structure**: Works with standard YOLO dataset folder structure
+
+### 🧹 Batch Operations
+- **Black Image Removal**: Automatically detect and remove images with black or near-black dominant colors
+- **K-Means Color Analysis**: Uses advanced k-means clustering in LAB color space for accurate color detection
+- **Batch Processing**: Scan entire splits and remove multiple images at once
+- **Progress Tracking**: Real-time progress display during batch operations
+- **Statistics Report**: View detailed results including total scanned, deleted, and retention rate
 
 ### 🎯 YOLO Format Support
 - **Standard Format**: Compatible with YOLO v5/v8 label format (class_id, x_center, y_center, width, height)
@@ -73,6 +80,13 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
    - Bounding boxes are overlaid on the image with class-specific colors
    - Press **Delete** key or click **🗑 Delete Image & Label** to remove bad samples
    - Confirm deletion in the popup dialog
+
+5. **Batch Remove Black Images**
+   - Click **🧹 Remove Black Images** button to detect and remove images with black/near-black content
+   - Review the confirmation dialog showing split and total image count
+   - Confirm to start the batch processing
+   - Monitor progress in real-time as images are scanned
+   - View final statistics including total scanned, deleted, and retention rate
 
 ### Dataset Structure
 
@@ -141,13 +155,16 @@ clean-cs2vision-dataset/
 │   ├── config.rs            # Centralized configuration management
 │   ├── dataset.rs           # Dataset loading and management
 │   ├── label_parser.rs      # YOLO label file parsing
+│   ├── image_analysis.rs    # Image color analysis and black detection
 │   └── ui/                  # User interface modules
 │       ├── mod.rs           # UI module exports
 │       ├── panels.rs        # UI panels (top, bottom, label, central)
 │       ├── keyboard.rs      # Keyboard shortcut handling
+│       ├── batch_dialogs.rs # Batch operation dialogs and progress
 │       └── image_renderer.rs # Image rendering with bounding boxes
 ├── Cargo.toml               # Project dependencies
 ├── Cargo.lock               # Locked dependency versions
+├── build_release.bat        # Windows build script
 └── README.md                # This file
 ```
 
@@ -158,9 +175,11 @@ The application follows a modular architecture:
 - **`config.rs`**: Centralizes all configuration values (colors, paths, window sizes) in a single location
 - **`dataset.rs`**: Handles dataset loading, split management, and file operations
 - **`label_parser.rs`**: Parses YOLO label files and extracts metadata
+- **`image_analysis.rs`**: Provides image color analysis using k-means clustering in LAB color space. Includes functions to calculate dominant colors and detect black/near-black images
 - **`ui/`**: Contains all UI-related code, separated by functionality:
   - `panels.rs`: Renders all UI panels (navigation, labels, image display)
   - `keyboard.rs`: Handles keyboard input and shortcuts
+  - `batch_dialogs.rs`: Manages batch operation dialogs (confirmation, progress, results)
   - `image_renderer.rs`: Renders images with overlaid bounding boxes
 
 ### Building for Development
@@ -224,13 +243,21 @@ To customize these values, edit `src/config.rs` in the `Default` implementation.
 - Delete low-quality captures
 - Clean up test data before model training
 
+### Batch Black Image Removal
+- Automatically detect and remove loading screens or black frames
+- Clean datasets with many corrupted or failed captures
+- Remove images from game crashes or screen transitions
+- Improve dataset quality by filtering out near-black images (RGB < 10)
+
 ## Tips & Best Practices
 
-1. **Backup Your Dataset**: Always keep a backup before cleaning
+1. **Backup Your Dataset**: Always keep a backup before cleaning, especially before batch operations
 2. **Review Systematically**: Go through one split at a time (train → val → test)
 3. **Check Edge Cases**: Pay special attention to images with 0 or many detections
 4. **Use Metadata**: Filter mentally by map or resolution if looking for specific issues
 5. **Keyboard Navigation**: Use arrow keys for faster navigation during review
+6. **Batch Black Image Removal**: Run this on each split separately after initial data collection to remove failed captures
+7. **Monitor Dominant Color**: The dominant color indicator in the label panel helps identify problematic images before batch processing
 
 ## Troubleshooting
 

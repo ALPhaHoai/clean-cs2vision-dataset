@@ -94,6 +94,18 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             ui.add_space(20.0);
             
+            // Batch delete black images button
+            if ui.add_enabled(
+                !app.dataset.get_image_files().is_empty() && !app.batch_processing,
+                egui::Button::new("🧹 Remove Black Images").fill(egui::Color32::from_rgb(100, 100, 180)),
+            )
+            .clicked()
+            {
+                app.show_batch_delete_confirm = true;
+            }
+            
+            ui.add_space(20.0);
+            
             // Current file name
             if !app.dataset.get_image_files().is_empty() {
                 if let Some(filename) = app.dataset.get_image_files()[app.current_index].file_name() {
