@@ -21,17 +21,17 @@ impl Default for AppConfig {
             default_dataset_path: PathBuf::from(r"E:\CS2Vison\cs2-data-dumper\dump"),
             window_width: 1200.0,
             window_height: 800.0,
-            class_names: vec!["CT", "T"],
+            class_names: vec!["T", "CT"],
             class_colors: vec![
-                // CT - Blue
-                (
-                    Color32::from_rgb(100, 149, 237),
-                    Color32::from_rgba_unmultiplied(100, 149, 237, 30),
-                ),
                 // T - Orange
                 (
                     Color32::from_rgb(255, 140, 0),
                     Color32::from_rgba_unmultiplied(255, 140, 0, 30),
+                ),
+                // CT - Blue
+                (
+                    Color32::from_rgb(100, 149, 237),
+                    Color32::from_rgba_unmultiplied(100, 149, 237, 30),
                 ),
             ],
             side_panel_width: 300.0,

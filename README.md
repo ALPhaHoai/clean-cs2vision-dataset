@@ -7,7 +7,7 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 ## Features
 
 ### 🖼️ Image Viewing & Navigation
-- **Visual Dataset Browser**: View images with overlaid bounding boxes color-coded by class (CT: Blue, T: Orange)
+- **Visual Dataset Browser**: View images with overlaid bounding boxes color-coded by class (T: Orange, CT: Blue)
 - **Keyboard Shortcuts**: Navigate quickly with arrow keys (← Previous, → Next)
 - **Auto-scaling**: Images automatically scale to fit the viewing area
 
@@ -26,7 +26,7 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 ### 🎯 YOLO Format Support
 - **Standard Format**: Compatible with YOLO v5/v8 label format (class_id, x_center, y_center, width, height)
 - **Metadata Comments**: Supports metadata in label files (resolution, map, timestamp)
-- **Multiple Classes**: Handles multi-class datasets (CT/T for CS2 dataset)
+- **Multiple Classes**: Handles multi-class datasets (T/CT for CS2 dataset)
 
 ## Installation
 
@@ -38,8 +38,8 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd clean-dataset
+git clone https://github.com/ALPhaHoai/clean-cs2vision-dataset.git
+cd clean-cs2vision-dataset
 
 # Build the project
 cargo build --release
@@ -137,11 +137,31 @@ This project uses the following Rust crates:
 ```
 clean-dataset/
 ├── src/
-│   └── main.rs          # Main application code
-├── Cargo.toml           # Project dependencies
-├── Cargo.lock           # Locked dependency versions
-└── README.md            # This file
+│   ├── main.rs              # Application entry point and core logic
+│   ├── config.rs            # Centralized configuration management
+│   ├── dataset.rs           # Dataset loading and management
+│   ├── label_parser.rs      # YOLO label file parsing
+│   └── ui/                  # User interface modules
+│       ├── mod.rs           # UI module exports
+│       ├── panels.rs        # UI panels (top, bottom, label, central)
+│       ├── keyboard.rs      # Keyboard shortcut handling
+│       └── image_renderer.rs # Image rendering with bounding boxes
+├── Cargo.toml               # Project dependencies
+├── Cargo.lock               # Locked dependency versions
+└── README.md                # This file
 ```
+
+### Architecture
+
+The application follows a modular architecture:
+
+- **`config.rs`**: Centralizes all configuration values (colors, paths, window sizes) in a single location
+- **`dataset.rs`**: Handles dataset loading, split management, and file operations
+- **`label_parser.rs`**: Parses YOLO label files and extracts metadata
+- **`ui/`**: Contains all UI-related code, separated by functionality:
+  - `panels.rs`: Renders all UI panels (navigation, labels, image display)
+  - `keyboard.rs`: Handles keyboard input and shortcuts
+  - `image_renderer.rs`: Renders images with overlaid bounding boxes
 
 ### Building for Development
 
@@ -164,12 +184,28 @@ cargo clippy
 
 ### Configuration
 
-The application defaults to loading the dataset from:
-```
-E:\CS2Vison\cs2-data-dumper\dump
+The application uses a centralized configuration system in `src/config.rs`. All settings are defined in the `AppConfig` struct:
+
+```rust
+pub struct AppConfig {
+    pub default_dataset_path: PathBuf,    // Default dataset location
+    pub window_width: f32,                 // Initial window width
+    pub window_height: f32,                // Initial window height
+    pub class_names: Vec<&'static str>,   // Class names (T, CT)
+    pub class_colors: Vec<(Color32, Color32)>, // Border and fill colors
+    pub side_panel_width: f32,             // Right panel width
+}
 ```
 
-You can modify this in `src/main.rs` at line 88, or simply use the "Open Dataset Folder" button to select a different location.
+#### Default Values
+
+- **Dataset Path**: `E:\CS2Vison\cs2-data-dumper\dump`
+- **Window Size**: 1200x800 pixels
+- **Side Panel Width**: 300 pixels
+- **Class 0 (T)**: Orange border (RGB: 255, 140, 0)
+- **Class 1 (CT)**: Blue border (RGB: 100, 149, 237)
+
+To customize these values, edit `src/config.rs` in the `Default` implementation. You can also select a different dataset location at runtime using the "📁 Open Dataset Folder" button.
 
 ## Use Cases
 
@@ -181,7 +217,7 @@ You can modify this in `src/main.rs` at line 88, or simply use the "Open Dataset
 ### Dataset Balancing
 - View detection counts across splits
 - Remove over-represented samples
-- Balance class distribution (CT vs T)
+- Balance class distribution (T vs CT)
 
 ### Dataset Cleaning
 - Remove duplicate images
