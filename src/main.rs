@@ -9,14 +9,18 @@ use label_parser::{LabelInfo, parse_label_file};
 mod dataset;
 use dataset::{Dataset, DatasetSplit};
 
+mod config;
+use config::AppConfig;
+
 mod ui;
 
 
 
 fn main() -> Result<(), eframe::Error> {
+    let config = AppConfig::default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
+            .with_inner_size([config.window_width, config.window_height])
             .with_title("YOLO Dataset Cleaner"),
         ..Default::default()
     };
@@ -34,16 +38,17 @@ pub struct DatasetCleanerApp {
     pub current_texture: Option<TextureHandle>,
     pub current_label: Option<LabelInfo>,
     pub show_delete_confirm: bool,
+    pub config: AppConfig,
 }
 
 impl Default for DatasetCleanerApp {
     fn default() -> Self {
+        let config = AppConfig::default();
         let mut dataset = Dataset::new();
         
-        // Load default dataset path
-        let default_path = PathBuf::from(r"E:\CS2Vison\cs2-data-dumper\dump");
-        if default_path.exists() {
-            dataset.load(default_path);
+        // Load default dataset path from config
+        if config.default_dataset_path.exists() {
+            dataset.load(config.default_dataset_path.clone());
         }
         
         Self {
@@ -52,6 +57,7 @@ impl Default for DatasetCleanerApp {
             current_texture: None,
             current_label: None,
             show_delete_confirm: false,
+            config,
         }
     }
 }

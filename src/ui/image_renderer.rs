@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, Painter, Rect, Vec2};
 use crate::label_parser::{LabelInfo, YoloDetection};
+use crate::config::AppConfig;
 
 /// Image rendering utilities for displaying images and bounding boxes
 pub struct ImageRenderer;
@@ -13,26 +14,7 @@ impl ImageRenderer {
             .min(1.0)
     }
     
-    /// Get stroke and fill colors for a given class ID
-    /// 
-    /// # Returns
-    /// Tuple of (stroke_color, fill_color) for the specified class
-    pub fn get_class_colors(class_id: u32) -> (Color32, Color32) {
-        match class_id {
-            0 => (
-                Color32::from_rgb(100, 149, 237), // CT - Blue
-                Color32::from_rgba_unmultiplied(100, 149, 237, 30)
-            ),
-            1 => (
-                Color32::from_rgb(255, 140, 0),   // T - Orange
-                Color32::from_rgba_unmultiplied(255, 140, 0, 30)
-            ),
-            _ => (
-                Color32::GRAY,
-                Color32::from_rgba_unmultiplied(128, 128, 128, 30)
-            ),
-        }
-    }
+
     
     /// Draw all bounding boxes from label data onto the image
     /// 
@@ -41,14 +23,16 @@ impl ImageRenderer {
     /// * `label` - The label information containing detections
     /// * `image_rect` - The rectangle where the image is displayed on screen
     /// * `scaled_size` - The scaled size of the image
+    /// * `config` - Application configuration for class names and colors
     pub fn draw_bounding_boxes(
         painter: &Painter,
         label: &LabelInfo,
         image_rect: Rect,
         scaled_size: Vec2,
+        config: &AppConfig,
     ) {
         for detection in &label.detections {
-            Self::draw_single_box(painter, detection, image_rect, scaled_size);
+            Self::draw_single_box(painter, detection, image_rect, scaled_size, config);
         }
     }
     
@@ -59,11 +43,13 @@ impl ImageRenderer {
     /// * `detection` - The detection to draw
     /// * `image_rect` - The rectangle where the image is displayed on screen
     /// * `scaled_size` - The scaled size of the image
+    /// * `config` - Application configuration for class names and colors
     fn draw_single_box(
         painter: &Painter,
         detection: &YoloDetection,
         image_rect: Rect,
         scaled_size: Vec2,
+        config: &AppConfig,
     ) {
         // Convert normalized YOLO coordinates to screen coordinates
         // YOLO format: center_x, center_y, width, height (all normalized 0-1)
@@ -85,8 +71,8 @@ impl ImageRenderer {
             egui::vec2(bbox_width, bbox_height)
         );
         
-        // Get colors for this class
-        let (stroke_color, fill_color) = Self::get_class_colors(detection.class_id);
+        // Get colors for this class from config
+        let (stroke_color, fill_color) = config.get_class_colors(detection.class_id);
         
         // Draw filled rectangle
         painter.rect_filled(bbox_rect, 0.0, fill_color);
@@ -99,7 +85,7 @@ impl ImageRenderer {
         );
         
         // Draw label text
-        let label_text = detection.class_name();
+        let label_text = config.get_class_name(detection.class_id);
         let font_id = egui::FontId::proportional(14.0);
         let text_galley = painter.layout_no_wrap(
             label_text.to_string(),

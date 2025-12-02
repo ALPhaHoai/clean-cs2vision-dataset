@@ -10,16 +10,6 @@ pub struct YoloDetection {
     pub height: f32,
 }
 
-impl YoloDetection {
-    pub fn class_name(&self) -> &str {
-        match self.class_id {
-            0 => "CT",
-            1 => "T",
-            _ => "Unknown",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct LabelInfo {
     pub detections: Vec<YoloDetection>,

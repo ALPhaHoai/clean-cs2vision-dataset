@@ -108,7 +108,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
 /// Render the right side panel with label information
 pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::SidePanel::right("label_panel")
-        .default_width(300.0)
+        .default_width(app.config.side_panel_width)
         .resizable(true)
         .show(ctx, |ui| {
             ui.heading("📊 Label Information");
@@ -154,15 +154,11 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         for (i, detection) in label.detections.iter().enumerate() {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
-                                    let class_color = match detection.class_id {
-                                        0 => egui::Color32::from_rgb(100, 149, 237), // CT - Blue
-                                        1 => egui::Color32::from_rgb(255, 140, 0),   // T - Orange
-                                        _ => egui::Color32::GRAY,
-                                    };
+                                    let (class_color, _) = app.config.get_class_colors(detection.class_id);
                                     
                                     ui.label(egui::RichText::new(format!("#{}", i + 1))
                                         .strong());
-                                    ui.label(egui::RichText::new(detection.class_name())
+                                    ui.label(egui::RichText::new(app.config.get_class_name(detection.class_id))
                                         .strong()
                                         .color(class_color));
                                 });
@@ -231,7 +227,8 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         ui.painter(),
                         label,
                         image_rect,
-                        scaled_size
+                        scaled_size,
+                        &app.config
                     );
                 }
             } else {
