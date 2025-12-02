@@ -6,6 +6,10 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use std::time::Instant;
+use tracing::{info, debug, warn, error};
+
+mod log_formatter;
+use log_formatter::BracketedFormatter;
 
 mod label_parser;
 use label_parser::{LabelInfo, parse_label_file};
@@ -45,6 +49,18 @@ pub struct UndoState {
 
 
 fn main() -> Result<(), eframe::Error> {
+    // Initialize tracing subscriber with custom bracketed format
+    // Default log level is "trace" to show all logs
+    tracing_subscriber::fmt()
+        .event_format(BracketedFormatter)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("trace"))
+        )
+        .init();
+    
+    info!("Starting YOLO Dataset Cleaner application");
+    
     let config = AppConfig::default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -53,6 +69,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     
+    info!("Launching application window");
     eframe::run_native(
         "YOLO Dataset Cleaner",
         options,
@@ -113,6 +130,7 @@ impl Default for DatasetCleanerApp {
 
 impl DatasetCleanerApp {
     pub fn load_dataset(&mut self, path: PathBuf) {
+        info!("Loading dataset from: {:?}", path);
         self.dataset.load(path);
         self.current_index = 0;
         self.current_texture = None;
@@ -120,9 +138,11 @@ impl DatasetCleanerApp {
         self.dominant_color = None;
         // Parse label file for the first image
         self.parse_label_file();
+        info!("Dataset loaded successfully, total images: {}", self.dataset.get_image_files().len());
     }
     
     pub fn change_split(&mut self, new_split: DatasetSplit) {
+        info!("Changing dataset split to: {:?}", new_split);
         self.dataset.change_split(new_split);
         self.current_index = 0;
         self.current_texture = None;
@@ -130,6 +150,7 @@ impl DatasetCleanerApp {
         self.dominant_color = None;
         // Parse label file for the first image
         self.parse_label_file();
+        debug!("Split changed, current images count: {}", self.dataset.get_image_files().len());
     }
     
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
@@ -190,10 +211,12 @@ impl DatasetCleanerApp {
     
     pub fn delete_current_image(&mut self) {
         if self.dataset.get_image_files().is_empty() {
+            warn!("Attempted to delete image, but no images available");
             return;
         }
         
         let img_path = &self.dataset.get_image_files()[self.current_index].clone();
+        debug!("Deleting image at index {}: {:?}", self.current_index, img_path);
         
         // Get image filename for display
         let image_filename = img_path
@@ -223,9 +246,10 @@ impl DatasetCleanerApp {
         
         // Move image to temp location
         if let Err(e) = fs::rename(img_path, &temp_image_path) {
-            eprintln!("Error moving image to temp: {}", e);
+            error!("Error moving image to temp: {}", e);
             return;
         }
+        info!("Image moved to temp location: {:?}", temp_image_path);
         
         // Move label file to temp location if it exists
         let temp_label_path = if let Some(ref lbl_path) = label_path {
@@ -275,13 +299,15 @@ impl DatasetCleanerApp {
     
     pub fn undo_delete(&mut self) {
         if let Some(undo_state) = self.undo_state.take() {
+            info!("Attempting to undo delete for: {}", undo_state.image_filename);
             // Restore image file
             if let Err(e) = fs::rename(&undo_state.temp_image_path, &undo_state.image_path) {
-                eprintln!("Error restoring image: {}", e);
+                error!("Error restoring image: {}", e);
                 // Put undo_state back if restore failed
                 self.undo_state = Some(undo_state);
                 return;
             }
+            debug!("Image successfully restored");
             
             // Restore label file if it exists
             if let (Some(temp_label), Some(orig_label)) = 
@@ -356,9 +382,11 @@ impl DatasetCleanerApp {
 
     pub fn process_black_images(&mut self) {
         if self.dataset.get_image_files().is_empty() {
+            warn!("No images to process for black image removal");
             return;
         }
         
+        info!("Starting batch processing to remove black images, total images: {}", self.dataset.get_image_files().len());
         // Set batch processing flag
         self.batch_processing = true;
         
@@ -379,11 +407,13 @@ impl DatasetCleanerApp {
         
         // Spawn background thread to process images
         thread::spawn(move || {
+            info!("Background thread started for batch image processing");
             let mut stats = BatchStats::default();
             
             for (idx, img_path) in image_files.iter().enumerate() {
                 // Check for cancellation
                 if cancel_flag.load(Ordering::Relaxed) {
+                    warn!("Batch processing cancelled by user at image {}/{}", idx, image_files.len());
                     let _ = tx.send(BatchProgressMessage::Cancelled(stats));
                     return;
                 }
@@ -423,11 +453,13 @@ impl DatasetCleanerApp {
             }
             
             // Send completion message
+            info!("Batch processing complete. Scanned: {}, Deleted: {}", stats.total_scanned, stats.total_deleted);
             let _ = tx.send(BatchProgressMessage::Complete(stats));
         });
     }
     
     pub fn cancel_batch_processing(&mut self) {
+        info!("User requested batch processing cancellation");
         if let Some(flag) = &self.batch_cancel_flag {
             flag.store(true, Ordering::Relaxed);
         }
