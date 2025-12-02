@@ -3,32 +3,10 @@ use egui::{ColorImage, TextureHandle};
 use std::path::PathBuf;
 use std::fs;
 
-#[derive(Debug, Clone)]
-struct YoloDetection {
-    class_id: u32,
-    x_center: f32,
-    y_center: f32,
-    width: f32,
-    height: f32,
-}
+mod label_parser;
+use label_parser::{LabelInfo, parse_label_file};
 
-impl YoloDetection {
-    fn class_name(&self) -> &str {
-        match self.class_id {
-            0 => "CT",
-            1 => "T",
-            _ => "Unknown",
-        }
-    }
-}
 
-#[derive(Debug, Clone)]
-struct LabelInfo {
-    detections: Vec<YoloDetection>,
-    resolution: Option<String>,
-    map: Option<String>,
-    timestamp: Option<String>,
-}
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -181,63 +159,8 @@ impl DatasetCleanerApp {
             }
         };
         
-        // Read and parse label file
-        if let Ok(content) = fs::read_to_string(&label_path) {
-            let mut detections = Vec::new();
-            let mut resolution = None;
-            let mut map = None;
-            let mut timestamp = None;
-            
-            for line in content.lines() {
-                let line = line.trim();
-                
-                // Parse metadata from comment line
-                // Format: # Resolution: 2560x1440, Map: de_dust2, Time: 1764637338
-                if line.starts_with('#') {
-                    let parts: Vec<&str> = line[1..].split(',').collect();
-                    for part in parts {
-                        let part = part.trim();
-                        if let Some(res) = part.strip_prefix("Resolution:") {
-                            resolution = Some(res.trim().to_string());
-                        } else if let Some(m) = part.strip_prefix("Map:") {
-                            map = Some(m.trim().to_string());
-                        } else if let Some(t) = part.strip_prefix("Time:") {
-                            timestamp = Some(t.trim().to_string());
-                        }
-                    }
-                } else if !line.is_empty() {
-                    // Parse detection line
-                    // Format: class_id x_center y_center width height
-                    let values: Vec<&str> = line.split_whitespace().collect();
-                    if values.len() == 5 {
-                        if let (Ok(class_id), Ok(x), Ok(y), Ok(w), Ok(h)) = (
-                            values[0].parse::<u32>(),
-                            values[1].parse::<f32>(),
-                            values[2].parse::<f32>(),
-                            values[3].parse::<f32>(),
-                            values[4].parse::<f32>(),
-                        ) {
-                            detections.push(YoloDetection {
-                                class_id,
-                                x_center: x,
-                                y_center: y,
-                                width: w,
-                                height: h,
-                            });
-                        }
-                    }
-                }
-            }
-            
-            self.current_label = Some(LabelInfo {
-                detections,
-                resolution,
-                map,
-                timestamp,
-            });
-        } else {
-            self.current_label = None;
-        }
+        // Parse label file using the dedicated module
+        self.current_label = parse_label_file(&label_path);
     }
     
     fn delete_current_image(&mut self) {
