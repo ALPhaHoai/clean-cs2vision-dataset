@@ -239,17 +239,17 @@ impl DatasetCleanerApp {
     }
     
     pub fn delete_current_image(&mut self) {
-        println!("=== DELETE_CURRENT_IMAGE CALLED ===");
+        info!("=== DELETE_CURRENT_IMAGE CALLED ===");
         
         if self.dataset.get_image_files().is_empty() {
-            println!("ERROR: Dataset is empty, returning early");
+            info!("ERROR: Dataset is empty, returning early");
             return;
         }
-        println!("Dataset has {} images", self.dataset.get_image_files().len());
-        println!("Current index: {}", self.current_index);
+        info!("Dataset has {} images", self.dataset.get_image_files().len());
+        info!("Current index: {}", self.current_index);
         
         let img_path = &self.dataset.get_image_files()[self.current_index].clone();
-        println!("Image path to delete: {:?}", img_path);
+        info!("Image path to delete: {:?}", img_path);
         
         // Get image filename for display
         let image_filename = img_path
@@ -257,21 +257,21 @@ impl DatasetCleanerApp {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        println!("Image filename: {}", image_filename);
+        info!("Image filename: {}", image_filename);
         
         // Get corresponding label file path
         let label_path = self.get_label_path_for_image(img_path);
-        println!("Label path: {:?}", label_path);
+        info!("Label path: {:?}", label_path);
         
         // Create temp directory in system temp
         let temp_dir = std::env::temp_dir().join("yolo_dataset_cleaner_undo");
-        println!("Temp dir: {:?}", temp_dir);
+        info!("Temp dir: {:?}", temp_dir);
         
         if let Err(e) = fs::create_dir_all(&temp_dir) {
             eprintln!("ERROR creating temp directory: {}", e);
             return;
         }
-        println!("Temp directory created successfully");
+        info!("Temp directory created successfully");
         
         // Generate unique temp paths using timestamp
         let timestamp = std::time::SystemTime::now()
@@ -281,22 +281,22 @@ impl DatasetCleanerApp {
         
         let temp_image_name = format!("{}_{}", timestamp, image_filename);
         let temp_image_path = temp_dir.join(&temp_image_name);
-        println!("Temp image path: {:?}", temp_image_path);
+        info!("Temp image path: {:?}", temp_image_path);
         
         // Move image to temp location
-        println!("Attempting to rename image from {:?} to {:?}", img_path, temp_image_path);
+        info!("Attempting to rename image from {:?} to {:?}", img_path, temp_image_path);
         if let Err(e) = fs::rename(img_path, &temp_image_path) {
             eprintln!("ERROR moving image to temp: {}", e);
             eprintln!("Source exists: {}", img_path.exists());
             eprintln!("Dest parent exists: {}", temp_image_path.parent().map_or(false, |p| p.exists()));
             return;
         }
-        println!("Image moved to temp successfully");
+        info!("Image moved to temp successfully");
         
         // Move label file to temp location if it exists
         let temp_label_path = if let Some(ref lbl_path) = label_path {
             if lbl_path.exists() {
-                println!("Label file exists, attempting to move: {:?}", lbl_path);
+                info!("Label file exists, attempting to move: {:?}", lbl_path);
                 let temp_label_name = format!("{}_{}", timestamp, 
                     lbl_path.file_name().and_then(|n| n.to_str()).unwrap_or("label.txt"));
                 let temp_lbl = temp_dir.join(&temp_label_name);
@@ -305,20 +305,20 @@ impl DatasetCleanerApp {
                     eprintln!("ERROR moving label to temp: {}", e);
                     None
                 } else {
-                    println!("Label moved to temp successfully: {:?}", temp_lbl);
+                    info!("Label moved to temp successfully: {:?}", temp_lbl);
                     Some(temp_lbl)
                 }
             } else {
-                println!("Label file doesn't exist");
+                info!("Label file doesn't exist");
                 None
             }
         } else {
-            println!("No label path computed");
+            info!("No label path computed");
             None
         };
         
         // Create undo state
-        println!("Creating undo state");
+        info!("Creating undo state");
         self.undo_state = Some(UndoState {
             image_path: img_path.clone(),
             label_path,
@@ -329,25 +329,25 @@ impl DatasetCleanerApp {
         });
         
         // Reload the current split to refresh the file list
-        println!("Reloading current split");
+        info!("Reloading current split");
         self.dataset.load_current_split();
-        println!("After reload, dataset has {} images", self.dataset.get_image_files().len());
+        info!("After reload, dataset has {} images", self.dataset.get_image_files().len());
         
         // Adjust index if needed
         if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
             self.current_index -= 1;
-            println!("Adjusted index to {}", self.current_index);
+            info!("Adjusted index to {}", self.current_index);
         }
         
         // Clear current texture
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
-        println!("Cleared current state");
+        info!("Cleared currentstate");
         
         // Parse the label for the new current image
         self.parse_label_file();
-        println!("=== DELETE_CURRENT_IMAGE COMPLETED SUCCESSFULLY ===");
+        info!("=== DELETE_CURRENT_IMAGE COMPLETED SUCCESSFULLY ===");
     }
     
     pub fn undo_delete(&mut self) {
@@ -533,11 +533,11 @@ impl eframe::App for DatasetCleanerApp {
         // Log app state on any key press for debugging
         ctx.input(|i| {
             if !i.events.is_empty() {
-                println!("[UPDATE] Events detected: {} events", i.events.len());
+                info!("[UPDATE] Events detected: {} events", i.events.len());
                 for event in &i.events {
                     match event {
                         egui::Event::Key { key, pressed, .. } => {
-                            println!("[UPDATE] Key event: {:?}, pressed: {}", key, pressed);
+                            info!("[UPDATE] Key event: {:?}, pressed: {}", key, pressed);
                         }
                         _ => {}
                     }
@@ -620,8 +620,8 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_batch_progress(self, ctx);
         ui::render_toast_notification(self, ctx);
         
-        println!("[UPDATE] About to call handle_keyboard_shortcuts");
+        info!("[UPDATE] About to call handle_keyboard_shortcuts");
         ui::handle_keyboard_shortcuts(self, ctx);
-        println!("[UPDATE] Finished handle_keyboard_shortcuts");
+        info!("[UPDATE] Finished handle_keyboard_shortcuts");
     }
 }
