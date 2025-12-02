@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{ColorImage, TextureHandle, Vec2};
+use egui::{ColorImage, TextureHandle};
 use std::path::{Path, PathBuf};
 use std::fs;
 
