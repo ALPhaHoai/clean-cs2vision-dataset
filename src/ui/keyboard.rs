@@ -21,5 +21,17 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         } else {
             info!("[KEYBOARD] Dataset is empty, not deleting");
         }
+    } else {
+        // Log if delete is pressed but not consumed/detected as pressed in this frame (rare but possible with focus issues)
+        // Actually, let's just log if ANY key is pressed to see if we are getting input at all in this function
+        // ctx.input(|i| {
+        //     for event in &i.events {
+        //          if let egui::Event::Key { key, pressed: true, .. } = event {
+        //              if *key == egui::Key::Delete {
+        //                  info!("[KEYBOARD] Delete key event found in events list!");
+        //              }
+        //          }
+        //     }
+        // });
     }
 }

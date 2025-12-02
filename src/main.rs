@@ -129,7 +129,10 @@ impl Default for DatasetCleanerApp {
         
         // Load default dataset path from config
         if config.default_dataset_path.exists() {
+            info!("Default dataset path exists: {:?}", config.default_dataset_path);
             dataset.load(config.default_dataset_path.clone());
+        } else {
+            warn!("Default dataset path does not exist: {:?}", config.default_dataset_path);
         }
         
         let mut app = Self {
@@ -531,19 +534,34 @@ impl DatasetCleanerApp {
 impl eframe::App for DatasetCleanerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Log app state on any key press for debugging
+        // Log app state on any key press for debugging
+        // Log app state on any key press for debugging
         ctx.input(|i| {
             if !i.events.is_empty() {
                 info!("[UPDATE] Events detected: {} events", i.events.len());
                 for event in &i.events {
-                    match event {
-                        egui::Event::Key { key, pressed, .. } => {
-                            info!("[UPDATE] Key event: {:?}, pressed: {}", key, pressed);
-                        }
-                        _ => {}
-                    }
+                    info!("[UPDATE] Event: {:?}", event);
                 }
             }
         });
+        
+        if ctx.wants_keyboard_input() {
+             // Only log this occasionally to avoid spam, or if it changes
+             // For now, let's log it if we have events
+             if !ctx.input(|i| i.events.is_empty()) {
+                 info!("[UPDATE] ctx.wants_keyboard_input() is TRUE (focus stolen?)");
+             }
+        }
+
+        // Periodic logging of app state (every ~1s assuming 60fps)
+        if ctx.input(|i| i.time) % 1.0 < 0.02 {
+             info!("[STATE] Images: {}, Index: {}, Texture: {}, Label: {}", 
+                self.dataset.get_image_files().len(),
+                self.current_index,
+                if self.current_texture.is_some() { "Some" } else { "None" },
+                if self.current_label.is_some() { "Some" } else { "None" }
+            );
+        }
         
         // Poll for batch processing updates
         let mut complete_stats = None;

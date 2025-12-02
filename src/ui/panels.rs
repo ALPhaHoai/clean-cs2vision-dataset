@@ -114,14 +114,21 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(20.0);
             
             // Delete button
-            if ui.add_enabled(
-                !app.dataset.get_image_files().is_empty(),
+            let delete_enabled = !app.dataset.get_image_files().is_empty();
+            let delete_btn = ui.add_enabled(
+                delete_enabled,
                 egui::Button::new("🗑 Delete Image & Label").fill(egui::Color32::from_rgb(200, 50, 50)),
-            )
-            .clicked()
-            {
+            );
+            
+            if delete_btn.clicked() {
                 tracing::info!("[BUTTON] Delete button clicked!");
                 app.delete_current_image();
+            } else {
+                if delete_btn.hovered() {
+                    if ui.input(|i| i.pointer.any_click()) {
+                         tracing::warn!("[BUTTON] Delete button HOVERED and CLICKED (raw), but .clicked() is FALSE. Enabled: {}", delete_enabled);
+                    }
+                }
             }
             
             ui.add_space(20.0);

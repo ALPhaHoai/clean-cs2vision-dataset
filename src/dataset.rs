@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::fs;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DatasetSplit {
@@ -49,6 +50,7 @@ impl Dataset {
             
             // Load all image files from the split directory
             if let Ok(entries) = fs::read_dir(&images_path) {
+                info!("Reading images from: {:?}", images_path);
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if let Some(ext) = path.extension() {
@@ -58,6 +60,9 @@ impl Dataset {
                         }
                     }
                 }
+                info!("Found {} images in {:?}", self.image_files.len(), images_path);
+            } else {
+                warn!("Failed to read directory: {:?}", images_path);
             }
             
             // Sort files for consistent ordering
