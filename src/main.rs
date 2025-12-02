@@ -3,6 +3,33 @@ use egui::{ColorImage, TextureHandle, Vec2};
 use std::path::{Path, PathBuf};
 use std::fs;
 
+#[derive(Debug, Clone)]
+struct YoloDetection {
+    class_id: u32,
+    x_center: f32,
+    y_center: f32,
+    width: f32,
+    height: f32,
+}
+
+impl YoloDetection {
+    fn class_name(&self) -> &str {
+        match self.class_id {
+            0 => "CT",
+            1 => "T",
+            _ => "Unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LabelInfo {
+    detections: Vec<YoloDetection>,
+    resolution: Option<String>,
+    map: Option<String>,
+    timestamp: Option<String>,
+}
+
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -24,6 +51,7 @@ struct DatasetCleanerApp {
     image_files: Vec<PathBuf>,
     current_index: usize,
     current_texture: Option<TextureHandle>,
+    current_label: Option<LabelInfo>,
     show_delete_confirm: bool,
 }
 
@@ -46,14 +74,23 @@ impl DatasetSplit {
 
 impl Default for DatasetCleanerApp {
     fn default() -> Self {
-        Self {
+        let mut app = Self {
             dataset_path: None,
             current_split: DatasetSplit::Train,
             image_files: Vec::new(),
             current_index: 0,
             current_texture: None,
+            current_label: None,
             show_delete_confirm: false,
+        };
+        
+        // Load default dataset path
+        let default_path = PathBuf::from(r"E:\CS2Vison\cs2-data-dumper\dump");
+        if default_path.exists() {
+            app.load_dataset(default_path);
         }
+        
+        app
     }
 }
 
@@ -67,6 +104,7 @@ impl DatasetCleanerApp {
         self.image_files.clear();
         self.current_index = 0;
         self.current_texture = None;
+        self.current_label = None;
         
         if let Some(base_path) = &self.dataset_path {
             // Navigate to split/images folder
@@ -126,6 +164,82 @@ impl DatasetCleanerApp {
         }
     }
     
+    fn parse_label_file(&mut self) {
+        if self.image_files.is_empty() {
+            self.current_label = None;
+            return;
+        }
+        
+        let img_path = &self.image_files[self.current_index];
+        
+        // Get corresponding label file path
+        let label_path = if let Some(img_str) = img_path.to_str() {
+            let label_str = img_str.replace("\\images\\", "\\labels\\").replace("/images/", "/labels/");
+            PathBuf::from(label_str).with_extension("txt")
+        } else {
+            self.current_label = None;
+            return;
+        };
+        
+        // Read and parse label file
+        if let Ok(content) = fs::read_to_string(&label_path) {
+            let mut detections = Vec::new();
+            let mut resolution = None;
+            let mut map = None;
+            let mut timestamp = None;
+            
+            for line in content.lines() {
+                let line = line.trim();
+                
+                // Parse metadata from comment line
+                // Format: # Resolution: 2560x1440, Map: de_dust2, Time: 1764637338
+                if line.starts_with('#') {
+                    let parts: Vec<&str> = line[1..].split(',').collect();
+                    for part in parts {
+                        let part = part.trim();
+                        if let Some(res) = part.strip_prefix("Resolution:") {
+                            resolution = Some(res.trim().to_string());
+                        } else if let Some(m) = part.strip_prefix("Map:") {
+                            map = Some(m.trim().to_string());
+                        } else if let Some(t) = part.strip_prefix("Time:") {
+                            timestamp = Some(t.trim().to_string());
+                        }
+                    }
+                } else if !line.is_empty() {
+                    // Parse detection line
+                    // Format: class_id x_center y_center width height
+                    let values: Vec<&str> = line.split_whitespace().collect();
+                    if values.len() == 5 {
+                        if let (Ok(class_id), Ok(x), Ok(y), Ok(w), Ok(h)) = (
+                            values[0].parse::<u32>(),
+                            values[1].parse::<f32>(),
+                            values[2].parse::<f32>(),
+                            values[3].parse::<f32>(),
+                            values[4].parse::<f32>(),
+                        ) {
+                            detections.push(YoloDetection {
+                                class_id,
+                                x_center: x,
+                                y_center: y,
+                                width: w,
+                                height: h,
+                            });
+                        }
+                    }
+                }
+            }
+            
+            self.current_label = Some(LabelInfo {
+                detections,
+                resolution,
+                map,
+                timestamp,
+            });
+        } else {
+            self.current_label = None;
+        }
+    }
+    
     fn delete_current_image(&mut self) {
         if self.image_files.is_empty() {
             return;
@@ -171,6 +285,7 @@ impl DatasetCleanerApp {
         if !self.image_files.is_empty() && self.current_index < self.image_files.len() - 1 {
             self.current_index += 1;
             self.current_texture = None;
+            self.current_label = None;
         }
     }
     
@@ -178,6 +293,7 @@ impl DatasetCleanerApp {
         if self.current_index > 0 {
             self.current_index -= 1;
             self.current_texture = None;
+            self.current_label = None;
         }
     }
 }
@@ -283,6 +399,88 @@ impl eframe::App for DatasetCleanerApp {
             ui.add_space(10.0);
         });
         
+        // Right panel for label information
+        if !self.image_files.is_empty() {
+            egui::SidePanel::right("label_panel")
+                .default_width(300.0)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.heading("📊 Label Information");
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                    
+                    if let Some(label) = &self.current_label {
+                        // Detection count
+                        ui.label(egui::RichText::new(format!("🎯 Detections: {}", label.detections.len()))
+                            .strong()
+                            .size(16.0));
+                        
+                        ui.add_space(10.0);
+                        
+                        // Metadata
+                        if let Some(res) = &label.resolution {
+                            ui.label(format!("📐 Resolution: {}", res));
+                        }
+                        if let Some(map) = &label.map {
+                            ui.label(format!("🗺 Map: {}", map));
+                        }
+                        if let Some(time) = &label.timestamp {
+                            ui.label(format!("⏰ Timestamp: {}", time));
+                        }
+                        
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        // Detection details
+                        if label.detections.is_empty() {
+                            ui.label(egui::RichText::new("No players detected")
+                                .italics()
+                                .color(egui::Color32::GRAY));
+                        } else {
+                            ui.label(egui::RichText::new("Detected Players:")
+                                .strong()
+                                .size(14.0));
+                            ui.add_space(5.0);
+                            
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                for (i, detection) in label.detections.iter().enumerate() {
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let class_color = match detection.class_id {
+                                                0 => egui::Color32::from_rgb(100, 149, 237), // CT - Blue
+                                                1 => egui::Color32::from_rgb(255, 140, 0),   // T - Orange
+                                                _ => egui::Color32::GRAY,
+                                            };
+                                            
+                                            ui.label(egui::RichText::new(format!("#{}", i + 1))
+                                                .strong());
+                                            ui.label(egui::RichText::new(detection.class_name())
+                                                .strong()
+                                                .color(class_color));
+                                        });
+                                        
+                                        ui.add_space(5.0);
+                                        
+                                        ui.label(format!("Center: ({:.4}, {:.4})", 
+                                            detection.x_center, detection.y_center));
+                                        ui.label(format!("Size: {:.4} × {:.4}", 
+                                            detection.width, detection.height));
+                                    });
+                                    
+                                    ui.add_space(5.0);
+                                }
+                            });
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("No label file found")
+                            .italics()
+                            .color(egui::Color32::GRAY));
+                    }
+                });
+        }
+        
         // Central panel with image display
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.image_files.is_empty() {
@@ -293,6 +491,11 @@ impl eframe::App for DatasetCleanerApp {
                 // Load image if not already loaded
                 if self.current_texture.is_none() {
                     self.load_current_image(ctx);
+                }
+                
+                // Parse label file if not already parsed
+                if self.current_label.is_none() {
+                    self.parse_label_file();
                 }
                 
                 // Display the image
