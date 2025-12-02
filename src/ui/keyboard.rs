@@ -10,7 +10,7 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         app.prev_image();
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
-        if !app.image_files.is_empty() {
+        if !app.dataset.get_image_files().is_empty() {
             app.show_delete_confirm = true;
         }
     }

@@ -18,25 +18,25 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(20.0);
             
             // Split selection buttons
-            if app.dataset_path.is_some() {
+            if app.dataset.dataset_path().is_some() {
                 ui.label("Split:");
                 
                 if ui.selectable_label(
-                    app.current_split == crate::DatasetSplit::Train,
+                    app.dataset.current_split() == crate::DatasetSplit::Train,
                     "Train"
                 ).clicked() {
                     app.change_split(crate::DatasetSplit::Train);
                 }
                 
                 if ui.selectable_label(
-                    app.current_split == crate::DatasetSplit::Val,
+                    app.dataset.current_split() == crate::DatasetSplit::Val,
                     "Val"
                 ).clicked() {
                     app.change_split(crate::DatasetSplit::Val);
                 }
                 
                 if ui.selectable_label(
-                    app.current_split == crate::DatasetSplit::Test,
+                    app.dataset.current_split() == crate::DatasetSplit::Test,
                     "Test"
                 ).clicked() {
                     app.change_split(crate::DatasetSplit::Test);
@@ -45,11 +45,11 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.add_space(20.0);
             }
             
-            if !app.image_files.is_empty() {
+            if !app.dataset.get_image_files().is_empty() {
                 ui.label(format!(
                     "Image {} of {}",
                     app.current_index + 1,
-                    app.image_files.len()
+                    app.dataset.get_image_files().len()
                 ));
             }
         });
@@ -71,7 +71,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             }
             
             if ui.add_enabled(
-                !app.image_files.is_empty() && app.current_index < app.image_files.len() - 1,
+                !app.dataset.get_image_files().is_empty() && app.current_index < app.dataset.get_image_files().len() - 1,
                 egui::Button::new("Next ►"),
             )
             .clicked()
@@ -83,7 +83,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             // Delete button
             if ui.add_enabled(
-                !app.image_files.is_empty(),
+                !app.dataset.get_image_files().is_empty(),
                 egui::Button::new("🗑 Delete Image & Label").fill(egui::Color32::from_rgb(200, 50, 50)),
             )
             .clicked()
@@ -94,8 +94,8 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(20.0);
             
             // Current file name
-            if !app.image_files.is_empty() {
-                if let Some(filename) = app.image_files[app.current_index].file_name() {
+            if !app.dataset.get_image_files().is_empty() {
+                if let Some(filename) = app.dataset.get_image_files()[app.current_index].file_name() {
                     ui.label(format!("📄 {}", filename.to_string_lossy()));
                 }
             }
@@ -189,7 +189,7 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
 /// Render the central panel with the main image display
 pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::CentralPanel::default().show(ctx, |ui| {
-        if app.image_files.is_empty() {
+        if app.dataset.get_image_files().is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.heading("No dataset loaded. Click 'Open Dataset Folder' to begin.");
             });
@@ -323,8 +323,8 @@ pub fn render_delete_confirmation(app: &mut DatasetCleanerApp, ctx: &egui::Conte
                 ui.label("Are you sure you want to delete this image and its label file?");
                 ui.add_space(10.0);
                 
-                if !app.image_files.is_empty() {
-                    if let Some(filename) = app.image_files[app.current_index].file_name() {
+                if !app.dataset.get_image_files().is_empty() {
+                    if let Some(filename) = app.dataset.get_image_files()[app.current_index].file_name() {
                         ui.label(format!("File: {}", filename.to_string_lossy()));
                     }
                 }

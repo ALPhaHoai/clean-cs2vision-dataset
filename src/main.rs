@@ -6,6 +6,9 @@ use std::fs;
 mod label_parser;
 use label_parser::{LabelInfo, parse_label_file};
 
+mod dataset;
+use dataset::{Dataset, DatasetSplit};
+
 mod ui;
 
 
@@ -26,103 +29,54 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 pub struct DatasetCleanerApp {
-    pub dataset_path: Option<PathBuf>,
-    pub current_split: DatasetSplit,
-    pub image_files: Vec<PathBuf>,
+    pub dataset: Dataset,
     pub current_index: usize,
     pub current_texture: Option<TextureHandle>,
     pub current_label: Option<LabelInfo>,
     pub show_delete_confirm: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DatasetSplit {
-    Train,
-    Val,
-    Test,
-}
-
-impl DatasetSplit {
-    fn as_str(&self) -> &str {
-        match self {
-            DatasetSplit::Train => "train",
-            DatasetSplit::Val => "val",
-            DatasetSplit::Test => "test",
-        }
-    }
-}
-
 impl Default for DatasetCleanerApp {
     fn default() -> Self {
-        let mut app = Self {
-            dataset_path: None,
-            current_split: DatasetSplit::Train,
-            image_files: Vec::new(),
-            current_index: 0,
-            current_texture: None,
-            current_label: None,
-            show_delete_confirm: false,
-        };
+        let mut dataset = Dataset::new();
         
         // Load default dataset path
         let default_path = PathBuf::from(r"E:\CS2Vison\cs2-data-dumper\dump");
         if default_path.exists() {
-            app.load_dataset(default_path);
+            dataset.load(default_path);
         }
         
-        app
+        Self {
+            dataset,
+            current_index: 0,
+            current_texture: None,
+            current_label: None,
+            show_delete_confirm: false,
+        }
     }
 }
 
 impl DatasetCleanerApp {
     pub fn load_dataset(&mut self, path: PathBuf) {
-        self.dataset_path = Some(path.clone());
-        self.load_current_split();
-    }
-    
-    pub fn load_current_split(&mut self) {
-        self.image_files.clear();
+        self.dataset.load(path);
         self.current_index = 0;
         self.current_texture = None;
         self.current_label = None;
-        
-        if let Some(base_path) = &self.dataset_path {
-            // Navigate to split/images folder
-            let images_path = base_path
-                .join(self.current_split.as_str())
-                .join("images");
-            
-            // Load all image files from the split directory
-            if let Ok(entries) = fs::read_dir(&images_path) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if let Some(ext) = path.extension() {
-                        let ext = ext.to_string_lossy().to_lowercase();
-                        if ext == "png" || ext == "jpg" || ext == "jpeg" {
-                            self.image_files.push(path);
-                        }
-                    }
-                }
-            }
-            
-            // Sort files for consistent ordering
-            self.image_files.sort();
-        }
     }
     
     pub fn change_split(&mut self, new_split: DatasetSplit) {
-        if self.current_split != new_split {
-            self.current_split = new_split;
-            self.load_current_split();
-        }
+        self.dataset.change_split(new_split);
+        self.current_index = 0;
+        self.current_texture = None;
+        self.current_label = None;
     }
     
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
-        if self.image_files.is_empty() {
+        if self.dataset.get_image_files().is_empty() {
             return;
         }
         
-        let img_path = &self.image_files[self.current_index];
+        let img_path = &self.dataset.get_image_files()[self.current_index];
         
         if let Ok(img) = image::open(img_path) {
             let img_rgb = img.to_rgba8();
@@ -145,12 +99,12 @@ impl DatasetCleanerApp {
     }
     
     pub fn parse_label_file(&mut self) {
-        if self.image_files.is_empty() {
+        if self.dataset.get_image_files().is_empty() {
             self.current_label = None;
             return;
         }
         
-        let img_path = &self.image_files[self.current_index];
+        let img_path = &self.dataset.get_image_files()[self.current_index];
         
         // Get corresponding label file path
         let label_path = match self.get_label_path_for_image(img_path) {
@@ -166,11 +120,11 @@ impl DatasetCleanerApp {
     }
     
     pub fn delete_current_image(&mut self) {
-        if self.image_files.is_empty() {
+        if self.dataset.get_image_files().is_empty() {
             return;
         }
         
-        let img_path = &self.image_files[self.current_index];
+        let img_path = &self.dataset.get_image_files()[self.current_index];
         
         // Delete the image file
         if let Err(e) = fs::remove_file(img_path) {
@@ -188,11 +142,11 @@ impl DatasetCleanerApp {
             }
         }
         
-        // Remove from the list
-        self.image_files.remove(self.current_index);
+        // Reload the current split to refresh the file list
+        self.dataset.load_current_split();
         
         // Adjust index if needed
-        if self.current_index >= self.image_files.len() && self.current_index > 0 {
+        if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
             self.current_index -= 1;
         }
         
@@ -202,7 +156,7 @@ impl DatasetCleanerApp {
     }
     
     pub fn next_image(&mut self) {
-        if !self.image_files.is_empty() && self.current_index < self.image_files.len() - 1 {
+        if !self.dataset.get_image_files().is_empty() && self.current_index < self.dataset.get_image_files().len() - 1 {
             self.current_index += 1;
             self.current_texture = None;
             self.current_label = None;
@@ -232,7 +186,7 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_top_panel(self, ctx);
         ui::render_bottom_panel(self, ctx);
         
-        if !self.image_files.is_empty() {
+        if !self.dataset.get_image_files().is_empty() {
             ui::render_label_panel(self, ctx);
         }
         
