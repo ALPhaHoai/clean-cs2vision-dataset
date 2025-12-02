@@ -173,12 +173,12 @@ impl DatasetCleanerApp {
         let img_path = &self.image_files[self.current_index];
         
         // Get corresponding label file path
-        let label_path = if let Some(img_str) = img_path.to_str() {
-            let label_str = img_str.replace("\\images\\", "\\labels\\").replace("/images/", "/labels/");
-            PathBuf::from(label_str).with_extension("txt")
-        } else {
-            self.current_label = None;
-            return;
+        let label_path = match self.get_label_path_for_image(img_path) {
+            Some(path) => path,
+            None => {
+                self.current_label = None;
+                return;
+            }
         };
         
         // Read and parse label file
@@ -254,13 +254,8 @@ impl DatasetCleanerApp {
         }
         
         // Delete the corresponding label file (.txt) from labels folder
-        // Replace /images/ with /labels/ in the path
-        let label_path = if let Some(img_str) = img_path.to_str() {
-            let label_str = img_str.replace("\\images\\", "\\labels\\").replace("/images/", "/labels/");
-            PathBuf::from(label_str).with_extension("txt")
-        } else {
-            img_path.with_extension("txt")
-        };
+        let label_path = self.get_label_path_for_image(img_path)
+            .unwrap_or_else(|| img_path.with_extension("txt"));
         
         if label_path.exists() {
             if let Err(e) = fs::remove_file(&label_path) {
@@ -295,6 +290,15 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
         }
+    }
+    
+    fn get_label_path_for_image(&self, img_path: &PathBuf) -> Option<PathBuf> {
+        img_path.to_str().map(|img_str| {
+            let label_str = img_str
+                .replace("\\images\\", "\\labels\\")
+                .replace("/images/", "/labels/");
+            PathBuf::from(label_str).with_extension("txt")
+        })
     }
 }
 
