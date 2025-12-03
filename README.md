@@ -10,6 +10,7 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **Visual Dataset Browser**: View images with overlaid bounding boxes color-coded by class (T: Orange, CT: Blue)
 - **Keyboard Shortcuts**: Navigate quickly with arrow keys (← Previous, → Next)
 - **Auto-scaling**: Images automatically scale to fit the viewing area
+- **Zoom Controls**: Zoom in/out on images using Ctrl + mouse wheel (50%-300%)
 - **Slider-like Navigation**: Swiper-style previous/next buttons positioned on left and right sides of images
 - **Loading States**: Visual feedback with loading indicators during image loading
 
@@ -168,12 +169,36 @@ Label files (`.txt`) should follow the YOLO format:
 
 ### Keyboard Shortcuts
 
+#### Navigation
 | Key | Action |
 |-----|--------|
 | **←** | Previous image |
 | **→** | Next image |
-| **Delete** | Open delete confirmation dialog |
+| **Home** | Jump to first image |
+| **End** | Jump to last image |
+| **Page Up** | Jump backward 10 images |
+| **Page Down** | Jump forward 10 images |
+| **1** | Switch to Train split |
+| **2** | Switch to Val split |
+| **3** | Switch to Test split |
+
+#### Zoom Controls
+| Key | Action |
+|-----|--------|
+| **Ctrl + Mouse Wheel** | Zoom in/out |
+| **Ctrl + 0** | Reset zoom to 100% |
+| **Ctrl + =** (plus) | Zoom in by 10% |
+| **Ctrl + -** (minus) | Zoom out by 10% |
+
+#### Actions
+| Key | Action |
+|-----|--------|
+| **Delete** | Delete current image & label |
 | **Ctrl+Z** | Undo last deletion (within 3 seconds) |
+| **Space** | Toggle fullscreen mode |
+| **Escape** | Close dialogs / Exit fullscreen |
+| **Ctrl+O** | Open dataset folder |
+| **Ctrl+F** | Open filter dialog |
 
 ## Dependencies
 

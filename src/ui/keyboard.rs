@@ -34,6 +34,25 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         return;
     }
 
+    // Zoom shortcuts
+    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Num0)) {
+        info!("[KEYBOARD] Ctrl+0 pressed - Reset zoom to 100%");
+        app.zoom_level = 1.0;
+        return;
+    }
+
+    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Equals)) {
+        info!("[KEYBOARD] Ctrl+= pressed - Zoom in");
+        app.zoom_level = (app.zoom_level + 0.1).clamp(0.5, 3.0);
+        return;
+    }
+
+    if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Minus)) {
+        info!("[KEYBOARD] Ctrl+- pressed - Zoom out");
+        app.zoom_level = (app.zoom_level - 0.1).clamp(0.5, 3.0);
+        return;
+    }
+
     // Navigation shortcuts with modifier keys
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::O)) {
         info!("[KEYBOARD] Ctrl+O pressed - Open dataset dialog");

@@ -311,8 +311,21 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 let available_size = ui.available_size();
                 let img_size = texture.size_vec2();
                 
+                // Handle zoom with Ctrl + mouse wheel
+                ui.input(|i| {
+                    if i.modifiers.ctrl && i.smooth_scroll_delta.y != 0.0 {
+                        // Zoom in/out based on scroll direction
+                        // Positive scroll_delta.y = scroll up = zoom in
+                        let zoom_delta = i.smooth_scroll_delta.y * 0.001;
+                        app.zoom_level = (app.zoom_level + zoom_delta).clamp(0.5, 3.0);
+                    }
+                });
+                
                 // Calculate scaling to fit the image within available space
-                let scale = ImageRenderer::calculate_image_scale(img_size, available_size);
+                let base_scale = ImageRenderer::calculate_image_scale(img_size, available_size);
+                
+                // Apply zoom level
+                let scale = base_scale * app.zoom_level;
                 
                 let scaled_size = img_size * scale;
                 
@@ -368,6 +381,40 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     
                     ui.painter().galley(
                         hint_pos,
+                        galley,
+                        egui::Color32::WHITE
+                    );
+                }
+
+                // Show zoom indicator when not at 100%
+                if (app.zoom_level - 1.0).abs() > 0.01 {
+                    let zoom_text = format!("{}%", (app.zoom_level * 100.0) as i32);
+                    let font_id = egui::FontId::proportional(14.0);
+                    let galley = ui.painter().layout_no_wrap(
+                        zoom_text,
+                        font_id.clone(),
+                        egui::Color32::WHITE
+                    );
+                    
+                    // Bottom-right corner
+                    let zoom_pos = egui::pos2(
+                        available_rect.max.x - galley.size().x - 20.0,
+                        available_rect.max.y - 30.0
+                    );
+                    
+                    let zoom_bg_rect = egui::Rect::from_min_size(
+                        zoom_pos - egui::vec2(5.0, 3.0),
+                        galley.size() + egui::vec2(10.0, 6.0)
+                    );
+                    
+                    ui.painter().rect_filled(
+                        zoom_bg_rect,
+                        4.0,
+                        egui::Color32::from_black_alpha(180)
+                    );
+                    
+                    ui.painter().galley(
+                        zoom_pos,
                         galley,
                         egui::Color32::WHITE
                     );

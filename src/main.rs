@@ -140,6 +140,7 @@ pub struct DatasetCleanerApp {
     pub settings: Settings,
     pub fullscreen_mode: bool,
     pub show_filter_dialog: bool,
+    pub zoom_level: f32,
 }
 
 impl Default for DatasetCleanerApp {
@@ -198,6 +199,7 @@ impl Default for DatasetCleanerApp {
             settings,
             fullscreen_mode: false,
             show_filter_dialog: false,
+            zoom_level: 1.0,
         };
 
         // Parse label for the current image if dataset was loaded
@@ -543,6 +545,7 @@ impl DatasetCleanerApp {
             self.current_label = None;
             self.dominant_color = None;
             self.image_load_error = None;
+            self.zoom_level = 1.0;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
 
@@ -559,6 +562,7 @@ impl DatasetCleanerApp {
             self.current_label = None;
             self.dominant_color = None;
             self.image_load_error = None;
+            self.zoom_level = 1.0;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
 
@@ -576,6 +580,7 @@ impl DatasetCleanerApp {
             self.current_label = None;
             self.dominant_color = None;
             self.image_load_error = None;
+            self.zoom_level = 1.0;
             self.parse_label_file();
 
             // Save image index to settings
@@ -594,6 +599,7 @@ impl DatasetCleanerApp {
                 self.current_label = None;
                 self.dominant_color = None;
                 self.image_load_error = None;
+                self.zoom_level = 1.0;
                 self.parse_label_file();
 
                 // Save image index to settings
@@ -624,6 +630,7 @@ impl DatasetCleanerApp {
             self.current_label = None;
             self.dominant_color = None;
             self.image_load_error = None;
+            self.zoom_level = 1.0;
             self.parse_label_file();
 
             // Save image index to settings
