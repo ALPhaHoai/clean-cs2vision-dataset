@@ -10,30 +10,41 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **Visual Dataset Browser**: View images with overlaid bounding boxes color-coded by class (T: Orange, CT: Blue)
 - **Keyboard Shortcuts**: Navigate quickly with arrow keys (← Previous, → Next)
 - **Auto-scaling**: Images automatically scale to fit the viewing area
+- **Slider-like Navigation**: Swiper-style previous/next buttons positioned on left and right sides of images
+- **Loading States**: Visual feedback with loading indicators during image loading
 
 ### 📊 Label Information Display
 - **Real-time Label Parsing**: View YOLO label data alongside images
 - **Metadata Display**: See resolution, map name, and timestamp information from label comments
 - **Detection Details**: View all detected objects with class, center coordinates, and dimensions
 - **Detection Count**: Quick overview of how many objects are labeled in each image
+- **Dominant Color Indicator**: Shows the dominant color of the current image for quality assessment
 
 ### 🗂️ Dataset Management
 - **Split Navigation**: Switch between train, validation, and test splits
 - **Individual Deletion**: Delete images and their corresponding label files with a single action
+- **Undo/Redo System**: Undo deletions within 3 seconds with automatic finalization
 - **Confirmation Dialog**: Prevents accidental deletions with a confirmation prompt
 - **Organized Structure**: Works with standard YOLO dataset folder structure
+- **Toast Notifications**: Visual feedback for successful actions like deletions and undos
 
 ### 🧹 Batch Operations
 - **Black Image Removal**: Automatically detect and remove images with black or near-black dominant colors
 - **K-Means Color Analysis**: Uses advanced k-means clustering in LAB color space for accurate color detection
 - **Batch Processing**: Scan entire splits and remove multiple images at once
-- **Progress Tracking**: Real-time progress display during batch operations
+- **Progress Tracking**: Real-time progress display during batch operations with cancel support
 - **Statistics Report**: View detailed results including total scanned, deleted, and retention rate
 
 ### 🎯 YOLO Format Support
 - **Standard Format**: Compatible with YOLO v5/v8 label format (class_id, x_center, y_center, width, height)
 - **Metadata Comments**: Supports metadata in label files (resolution, map, timestamp)
 - **Multiple Classes**: Handles multi-class datasets (T/CT for CS2 dataset)
+
+### 📝 Logging & Debugging
+- **Structured Logging**: Comprehensive logging system using `tracing` and `tracing-subscriber`
+- **Custom Log Format**: Bracketed formatter with timestamps, log levels, function names, and source locations
+- **File Logging**: All logs saved to timestamped files in the `logs/` directory
+- **Selective Filtering**: Reduced noise from third-party libraries (egui, eframe, winit)
 
 ## Installation
 
@@ -66,22 +77,29 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
    cargo run --release
    ```
 
-2. **Open Your Dataset**
+2. **Try the Sample Dataset** (Optional but Recommended)
+   - The application includes a `sample-dataset/` folder with Ghibli-style images
+   - Click **"📁 Open Dataset Folder"** and select the `sample-dataset` directory
+   - This lets you explore all features without risking your real data
+
+3. **Open Your Dataset**
    - Click the **"📁 Open Dataset Folder"** button
    - Select the root folder of your YOLO dataset (should contain `train`, `val`, and `test` subdirectories)
 
-3. **Navigate Your Dataset**
+4. **Navigate Your Dataset**
    - Use the **Train/Val/Test** buttons to switch between splits
-   - Use **◄ Previous** and **Next ►** buttons to navigate images
+   - Use **◄ Previous** and **Next ►** buttons to navigate images (slider-style positioned on image sides)
    - Use keyboard shortcuts: **←** (previous) and **→** (next)
 
-4. **Review and Clean**
+5. **Review and Clean**
    - Review each image and its label information in the right panel
    - Bounding boxes are overlaid on the image with class-specific colors
    - Press **Delete** key or click **🗑 Delete Image & Label** to remove bad samples
    - Confirm deletion in the popup dialog
+   - Toast notification appears on successful deletion
+   - Press **Ctrl+Z** within 3 seconds to undo if needed
 
-5. **Batch Remove Black Images**
+6. **Batch Remove Black Images**
    - Click **🧹 Remove Black Images** button to detect and remove images with black/near-black content
    - Review the confirmation dialog showing split and total image count
    - Confirm to start the batch processing
@@ -111,6 +129,24 @@ dataset/
     └── labels/
 ```
 
+### Sample Dataset
+
+The project includes a `sample-dataset/` directory for testing and learning:
+
+**Contents:**
+- **Train Split**: 10 Ghibli-style anime images with YOLO labels
+- **Val Split**: Additional validation images
+- **Test Split**: Additional test images
+
+**Purpose:**
+- Explore the application's features without needing your own dataset
+- Test batch operations safely
+- Learn keyboard shortcuts and navigation
+- Understand the YOLO label format and how it's displayed
+- Practice the undo/redo functionality
+
+**Images:** The sample images are Ghibli-style artwork generated for demonstration purposes, labeled with example bounding boxes to show how the tool displays and manages YOLO datasets.
+
 ### Label Format
 
 Label files (`.txt`) should follow the YOLO format:
@@ -131,6 +167,7 @@ Label files (`.txt`) should follow the YOLO format:
 | **←** | Previous image |
 | **→** | Next image |
 | **Delete** | Open delete confirmation dialog |
+| **Ctrl+Z** | Undo last deletion (within 3 seconds) |
 
 ## Dependencies
 
@@ -139,10 +176,14 @@ This project uses the following Rust crates:
 - **[eframe](https://github.com/emilk/egui)** (v0.29): Application framework
 - **[egui](https://github.com/emilk/egui)** (v0.29): Immediate mode GUI library
 - **[egui_extras](https://github.com/emilk/egui)** (v0.29): Additional egui utilities
+- **[egui-phosphor](https://crates.io/crates/egui-phosphor)** (v0.7): Phosphor icon library for egui
 - **[image](https://github.com/image-rs/image)** (v0.25): Image loading and processing
 - **[rfd](https://github.com/PolyMeilex/rfd)** (v0.15): Native file dialogs
 - **[kmeans_colors](https://crates.io/crates/kmeans_colors)** (v0.6): Color analysis utilities
 - **[palette](https://crates.io/crates/palette)** (v0.7): Color manipulation
+- **[tracing](https://crates.io/crates/tracing)** (v0.1): Structured logging
+- **[tracing-subscriber](https://crates.io/crates/tracing-subscriber)** (v0.3): Logging implementation with env-filter support
+- **[chrono](https://crates.io/crates/chrono)** (v0.4): Date and time handling for log timestamps
 
 ## Development
 
@@ -156,12 +197,19 @@ clean-cs2vision-dataset/
 │   ├── dataset.rs           # Dataset loading and management
 │   ├── label_parser.rs      # YOLO label file parsing
 │   ├── image_analysis.rs    # Image color analysis and black detection
+│   ├── log_formatter.rs     # Custom bracketed log formatter
 │   └── ui/                  # User interface modules
 │       ├── mod.rs           # UI module exports
 │       ├── panels.rs        # UI panels (top, bottom, label, central)
 │       ├── keyboard.rs      # Keyboard shortcut handling
 │       ├── batch_dialogs.rs # Batch operation dialogs and progress
-│       └── image_renderer.rs # Image rendering with bounding boxes
+│       ├── image_renderer.rs # Image rendering with bounding boxes
+│       └── toast.rs         # Toast notification system
+├── sample-dataset/          # Sample dataset for testing
+│   ├── train/               # Training split with Ghibli-style images
+│   ├── val/                 # Validation split
+│   └── test/                # Test split
+├── logs/                    # Timestamped log files
 ├── Cargo.toml               # Project dependencies
 ├── Cargo.lock               # Locked dependency versions
 ├── build_release.bat        # Windows build script
@@ -176,11 +224,13 @@ The application follows a modular architecture:
 - **`dataset.rs`**: Handles dataset loading, split management, and file operations
 - **`label_parser.rs`**: Parses YOLO label files and extracts metadata
 - **`image_analysis.rs`**: Provides image color analysis using k-means clustering in LAB color space. Includes functions to calculate dominant colors and detect black/near-black images
+- **`log_formatter.rs`**: Custom log formatter that wraps log fields in brackets for improved readability (timestamp, level, function, location)
 - **`ui/`**: Contains all UI-related code, separated by functionality:
-  - `panels.rs`: Renders all UI panels (navigation, labels, image display)
-  - `keyboard.rs`: Handles keyboard input and shortcuts
+  - `panels.rs`: Renders all UI panels (navigation, labels, image display) using Phosphor icons
+  - `keyboard.rs`: Handles keyboard input and shortcuts (navigation, delete, undo)
   - `batch_dialogs.rs`: Manages batch operation dialogs (confirmation, progress, results)
   - `image_renderer.rs`: Renders images with overlaid bounding boxes
+  - `toast.rs`: Toast notification system for user feedback
 
 ### Building for Development
 
@@ -226,6 +276,18 @@ pub struct AppConfig {
 
 To customize these values, edit `src/config.rs` in the `Default` implementation. You can also select a different dataset location at runtime using the "📁 Open Dataset Folder" button.
 
+### Logging Configuration
+
+The application uses structured logging with custom formatting:
+
+- **Log Format**: `[TIMESTAMP] [LEVEL] [FUNCTION_NAME] [TARGET: FILE:LINE]: MESSAGE`
+- **Log Directory**: `logs/` (created automatically)
+- **Log Files**: Timestamped format `app_YYYYMMDD_HHMMSS.log`
+- **Log Levels**: Configured via `RUST_LOG` environment variable (defaults to `info` for the app, filters out trace/debug from third-party libs)
+- **Custom Formatter**: Implemented in `src/log_formatter.rs` for enhanced readability
+
+Logs include detailed information about image operations, deletions, undo actions, and error handling.
+
 ## Use Cases
 
 ### Dataset Quality Control
@@ -256,8 +318,11 @@ To customize these values, edit `src/config.rs` in the `Default` implementation.
 3. **Check Edge Cases**: Pay special attention to images with 0 or many detections
 4. **Use Metadata**: Filter mentally by map or resolution if looking for specific issues
 5. **Keyboard Navigation**: Use arrow keys for faster navigation during review
-6. **Batch Black Image Removal**: Run this on each split separately after initial data collection to remove failed captures
-7. **Monitor Dominant Color**: The dominant color indicator in the label panel helps identify problematic images before batch processing
+6. **Undo Deletions**: Accidentally deleted something? Press **Ctrl+Z** within 3 seconds to undo
+7. **Batch Black Image Removal**: Run this on each split separately after initial data collection to remove failed captures
+8. **Monitor Dominant Color**: The dominant color indicator in the label panel helps identify problematic images before batch processing
+9. **Check Logs**: Review log files in the `logs/` directory to troubleshoot issues or audit operations
+10. **Test with Sample Dataset**: Use the included `sample-dataset/` to familiarize yourself with the tool before working on your actual data
 
 ## Troubleshooting
 
@@ -265,6 +330,8 @@ To customize these values, edit `src/config.rs` in the `Default` implementation.
 - Ensure your dataset follows the correct folder structure
 - Check that images are in `.png`, `.jpg`, or `.jpeg` format
 - Verify that `images` and `labels` folders exist in each split
+- Check the `logs/` directory for detailed error messages about image decoding failures
+- If an image fails to load, the app displays an error message instead of showing a loading spinner indefinitely
 
 ### Labels Not Displaying
 - Confirm label files are in the `labels` folder (not `images`)
