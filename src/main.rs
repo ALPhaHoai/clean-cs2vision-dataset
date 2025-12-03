@@ -22,6 +22,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([settings.window_width, settings.window_height])
             .with_title("YOLO Dataset Cleaner"),
+        centered: true,
         ..Default::default()
     };
 

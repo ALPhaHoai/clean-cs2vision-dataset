@@ -82,43 +82,64 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 let available_size = ui.available_size();
                 let img_size = texture.size_vec2();
 
-                // Handle zoom with Ctrl + mouse wheel
-                ui.input(|i| {
+                // Calculate scaling to fit the image within available space (this is the container size)
+                let base_scale = ImageRenderer::calculate_image_scale(img_size, available_size);
+                let container_size = img_size * base_scale;
+
+                // Apply zoom level to get the actual image size
+                let scale = base_scale * app.image.zoom_level;
+                let scaled_size = img_size * scale;
+
+                // Get the available rect for the container
+                let available_rect = ui.available_rect_before_wrap();
+                let container_rect =
+                    egui::Rect::from_center_size(available_rect.center(), container_size);
+
+                // Handle zoom with Ctrl + mouse wheel (only when hovering over the container)
+                ctx.input(|i| {
                     if i.modifiers.ctrl && i.smooth_scroll_delta.y != 0.0 {
-                        // Zoom in/out based on scroll direction
-                        // Positive scroll_delta.y = scroll up = zoom in
-                        let zoom_delta = i.smooth_scroll_delta.y * 0.001;
-                        app.image.zoom_level = (app.image.zoom_level + zoom_delta).clamp(0.5, 3.0);
+                        if let Some(pointer_pos) = i.pointer.hover_pos() {
+                            // Only zoom if the mouse is over the container
+                            if container_rect.contains(pointer_pos) {
+                                // Zoom in/out based on scroll direction
+                                // Positive scroll_delta.y = scroll up = zoom in
+                                let zoom_delta = i.smooth_scroll_delta.y * 0.001;
+                                app.image.zoom_level =
+                                    (app.image.zoom_level + zoom_delta).clamp(0.5, 3.0);
+                            }
+                        }
                     }
                 });
 
-                // Calculate scaling to fit the image within available space
-                let base_scale = ImageRenderer::calculate_image_scale(img_size, available_size);
-
-                // Apply zoom level
-                let scale = base_scale * app.image.zoom_level;
-
-                let scaled_size = img_size * scale;
-
-                // Center the image and get the rect where it's drawn
-                let available_rect = ui.available_rect_before_wrap();
-                let image_rect = egui::Rect::from_center_size(available_rect.center(), scaled_size);
-
-                // Draw the image
-                ui.put(image_rect, egui::Image::new((texture.id(), scaled_size)));
-
-                // Draw bounding boxes if label data exists (not in fullscreen mode)
-                if !app.ui.fullscreen_mode {
-                    if let Some(label) = &app.image.label {
-                        ImageRenderer::draw_bounding_boxes(
-                            ui.painter(),
-                            label,
-                            image_rect,
+                // Create a fixed-size area for the image with scrolling
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show_viewport(ui, |ui, _viewport| {
+                        // Center the zoomed image within the scroll area
+                        let image_rect = egui::Rect::from_center_size(
+                            egui::pos2(container_size.x / 2.0, container_size.y / 2.0),
                             scaled_size,
-                            &app.config,
                         );
-                    }
-                }
+
+                        // Draw the image
+                        ui.put(image_rect, egui::Image::new((texture.id(), scaled_size)));
+
+                        // Draw bounding boxes if label data exists (not in fullscreen mode)
+                        if !app.ui.fullscreen_mode {
+                            if let Some(label) = &app.image.label {
+                                ImageRenderer::draw_bounding_boxes(
+                                    ui.painter(),
+                                    label,
+                                    image_rect,
+                                    scaled_size,
+                                    &app.config,
+                                );
+                            }
+                        }
+
+                        // Return the rect for use by navigation overlays
+                        image_rect
+                    });
 
                 // Show fullscreen hint overlay
                 if app.ui.fullscreen_mode {
@@ -185,8 +206,8 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     // Previous Button (Left)
                     if app.current_index > 0 {
                         let prev_rect = egui::Rect::from_min_size(
-                            image_rect.min,
-                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, image_rect.height()),
+                            container_rect.min,
+                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, container_rect.height()),
                         );
 
                         let response = ui.allocate_rect(prev_rect, egui::Sense::click());
@@ -220,10 +241,10 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     {
                         let next_rect = egui::Rect::from_min_size(
                             egui::pos2(
-                                image_rect.max.x - NAVIGATION_OVERLAY_WIDTH,
-                                image_rect.min.y,
+                                container_rect.max.x - NAVIGATION_OVERLAY_WIDTH,
+                                container_rect.min.y,
                             ),
-                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, image_rect.height()),
+                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, container_rect.height()),
                         );
 
                         let response = ui.allocate_rect(next_rect, egui::Sense::click());
