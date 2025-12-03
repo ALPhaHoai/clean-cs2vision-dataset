@@ -95,7 +95,8 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.add_space(10.0);
             
-            // Navigation buttons
+            // Navigation buttons removed (moved to image overlay)
+            /*
             if ui.add_enabled(app.current_index > 0, egui::Button::new("◄ Previous"))
                 .clicked()
             {
@@ -110,6 +111,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             {
                 app.next_image();
             }
+            */
             
             ui.add_space(20.0);
             
@@ -337,6 +339,122 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         &app.config
                     );
                 }
+
+                // --- Navigation Overlays ---
+                let overlay_width = 60.0; // Width of the clickable area
+                
+                // Previous Button (Left)
+                if app.current_index > 0 {
+                    let prev_rect = egui::Rect::from_min_size(
+                        image_rect.min,
+                        egui::vec2(overlay_width, image_rect.height())
+                    );
+                    
+                    let response = ui.allocate_rect(prev_rect, egui::Sense::click());
+                    let is_hovered = response.hovered();
+                    
+                    // Draw background (only on hover)
+                    if is_hovered {
+                        ui.painter().rect_filled(
+                            prev_rect,
+                            0.0,
+                            egui::Color32::from_black_alpha(50)
+                        );
+                    }
+                    
+                    // Draw arrow icon (always visible, brighter on hover)
+                    let center = prev_rect.center();
+                    let arrow_size = 20.0;
+                    let arrow_color = if is_hovered {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_white_alpha(128)
+                    };
+                    
+                    let points = vec![
+                        center + egui::vec2(arrow_size / 2.0, -arrow_size),
+                        center + egui::vec2(-arrow_size / 2.0, 0.0),
+                        center + egui::vec2(arrow_size / 2.0, arrow_size),
+                    ];
+                    
+                    // Add a small shadow/outline for better visibility against light images
+                    if !is_hovered {
+                        let shadow_offset = egui::vec2(1.0, 1.0);
+                        let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+                        ui.painter().add(egui::Shape::convex_polygon(
+                            shadow_points,
+                            egui::Color32::from_black_alpha(100),
+                            egui::Stroke::NONE
+                        ));
+                    }
+
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        points,
+                        arrow_color,
+                        egui::Stroke::NONE
+                    ));
+                    
+                    if response.clicked() {
+                        app.prev_image();
+                    }
+                }
+
+                // Next Button (Right)
+                if !app.dataset.get_image_files().is_empty() && app.current_index < app.dataset.get_image_files().len() - 1 {
+                    let next_rect = egui::Rect::from_min_size(
+                        egui::pos2(image_rect.max.x - overlay_width, image_rect.min.y),
+                        egui::vec2(overlay_width, image_rect.height())
+                    );
+                    
+                    let response = ui.allocate_rect(next_rect, egui::Sense::click());
+                    let is_hovered = response.hovered();
+                    
+                    // Draw background (only on hover)
+                    if is_hovered {
+                        ui.painter().rect_filled(
+                            next_rect,
+                            0.0,
+                            egui::Color32::from_black_alpha(50)
+                        );
+                    }
+                    
+                    // Draw arrow icon (always visible, brighter on hover)
+                    let center = next_rect.center();
+                    let arrow_size = 20.0;
+                    let arrow_color = if is_hovered {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_white_alpha(128)
+                    };
+                    
+                    let points = vec![
+                        center + egui::vec2(-arrow_size / 2.0, -arrow_size),
+                        center + egui::vec2(arrow_size / 2.0, 0.0),
+                        center + egui::vec2(-arrow_size / 2.0, arrow_size),
+                    ];
+
+                    // Add a small shadow/outline for better visibility against light images
+                    if !is_hovered {
+                        let shadow_offset = egui::vec2(1.0, 1.0);
+                        let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+                        ui.painter().add(egui::Shape::convex_polygon(
+                            shadow_points,
+                            egui::Color32::from_black_alpha(100),
+                            egui::Stroke::NONE
+                        ));
+                    }
+
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        points,
+                        arrow_color,
+                        egui::Stroke::NONE
+                    ));
+                    
+                    if response.clicked() {
+                        app.next_image();
+                    }
+                }
+
             } else if let Some(error_msg) = &app.image_load_error {
                 // Display error message instead of loading spinner
                 ui.centered_and_justified(|ui| {
