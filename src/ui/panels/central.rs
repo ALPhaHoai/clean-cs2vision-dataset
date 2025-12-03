@@ -111,35 +111,42 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     }
                 });
 
-                // Create a fixed-size area for the image with scrolling
-                egui::ScrollArea::both()
+                // Create a scroll area for the image
+                let scroll_response = egui::ScrollArea::both()
                     .auto_shrink([false, false])
-                    .show_viewport(ui, |ui, _viewport| {
-                        // Center the zoomed image within the scroll area
-                        let image_rect = egui::Rect::from_center_size(
-                            egui::pos2(container_size.x / 2.0, container_size.y / 2.0),
-                            scaled_size,
-                        );
-
-                        // Draw the image
-                        ui.put(image_rect, egui::Image::new((texture.id(), scaled_size)));
-
-                        // Draw bounding boxes if label data exists (not in fullscreen mode)
-                        if !app.ui.fullscreen_mode {
-                            if let Some(label) = &app.image.label {
-                                ImageRenderer::draw_bounding_boxes(
-                                    ui.painter(),
-                                    label,
-                                    image_rect,
-                                    scaled_size,
-                                    &app.config,
-                                );
+                    .show(ui, |ui| {
+                        // Set minimum size to the container size to ensure centering works
+                        ui.set_min_size(container_size);
+                        
+                        // Center the image within the scroll area
+                        ui.centered_and_justified(|ui| {
+                            // Add the image
+                            let img_response = ui.add(
+                                egui::Image::new((texture.id(), scaled_size))
+                                    .fit_to_original_size(1.0)
+                            );
+                            
+                            // Get the actual rect where the image was placed
+                            let image_rect = img_response.rect;
+                            
+                            // Draw bounding boxes if label data exists (not in fullscreen mode)
+                            if !app.ui.fullscreen_mode {
+                                if let Some(label) = &app.image.label {
+                                    ImageRenderer::draw_bounding_boxes(
+                                        ui.painter(),
+                                        label,
+                                        image_rect,
+                                        scaled_size,
+                                        &app.config,
+                                    );
+                                }
                             }
-                        }
-
-                        // Return the rect for use by navigation overlays
-                        image_rect
+                            
+                            image_rect
+                        }).inner
                     });
+                
+                let image_rect = scroll_response.inner;
 
                 // Show fullscreen hint overlay
                 if app.ui.fullscreen_mode {
