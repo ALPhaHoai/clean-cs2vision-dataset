@@ -5,6 +5,7 @@ mod app;
 mod config;
 mod core;
 mod infrastructure;
+mod navigation;
 mod state;
 mod ui;
 
