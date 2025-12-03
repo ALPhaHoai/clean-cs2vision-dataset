@@ -205,14 +205,22 @@ impl Default for DatasetCleanerApp {
 }
 
 impl DatasetCleanerApp {
-    pub fn load_dataset(&mut self, path: PathBuf) {
-        info!("Loading dataset from: {:?}", path);
-        self.dataset.load(path.clone());
-        self.current_index = 0;
+    /// Helper method to reset image-related state
+    fn reset_image_state(&mut self, reset_zoom: bool) {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
         self.image_load_error = None;
+        if reset_zoom {
+            self.zoom_level = 1.0;
+        }
+    }
+
+    pub fn load_dataset(&mut self, path: PathBuf) {
+        info!("Loading dataset from: {:?}", path);
+        self.dataset.load(path.clone());
+        self.current_index = 0;
+        self.reset_image_state(false);
         // Parse label file for the first image
         self.parse_label_file();
         info!(
@@ -229,10 +237,7 @@ impl DatasetCleanerApp {
         info!("Changing dataset split to: {:?}", new_split);
         self.dataset.change_split(new_split);
         self.current_index = 0;
-        self.current_texture = None;
-        self.current_label = None;
-        self.dominant_color = None;
-        self.image_load_error = None;
+        self.reset_image_state(false);
         // Parse label file for the first image
         self.parse_label_file();
         debug!(
@@ -443,10 +448,7 @@ impl DatasetCleanerApp {
         }
 
         // Clear current texture
-        self.current_texture = None;
-        self.current_label = None;
-        self.dominant_color = None;
-        self.image_load_error = None;
+        self.reset_image_state(false);
         info!("Cleared currentstate");
 
         // Parse the label for the new current image
@@ -500,10 +502,7 @@ impl DatasetCleanerApp {
             }
 
             // Clear current texture to force reload
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
+            self.reset_image_state(false);
 
             // Parse the label for the current/restored image
             self.parse_label_file();
@@ -556,10 +555,7 @@ impl DatasetCleanerApp {
             }
 
             // Clear current texture
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
+            self.reset_image_state(false);
 
             // Parse the label for the new current image
             self.parse_label_file();
@@ -571,11 +567,7 @@ impl DatasetCleanerApp {
             && self.current_index < self.dataset.get_image_files().len() - 1
         {
             self.current_index += 1;
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
-            self.zoom_level = 1.0;
+            self.reset_image_state(true);
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
 
@@ -588,11 +580,7 @@ impl DatasetCleanerApp {
     pub fn prev_image(&mut self) {
         if self.current_index > 0 {
             self.current_index -= 1;
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
-            self.zoom_level = 1.0;
+            self.reset_image_state(true);
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
 
@@ -606,11 +594,7 @@ impl DatasetCleanerApp {
         if !self.dataset.get_image_files().is_empty() && self.current_index != 0 {
             info!("Jumping to first image");
             self.current_index = 0;
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
-            self.zoom_level = 1.0;
+            self.reset_image_state(true);
             self.parse_label_file();
 
             // Save image index to settings
@@ -625,11 +609,7 @@ impl DatasetCleanerApp {
             if self.current_index != last_index {
                 info!("Jumping to last image");
                 self.current_index = last_index;
-                self.current_texture = None;
-                self.current_label = None;
-                self.dominant_color = None;
-                self.image_load_error = None;
-                self.zoom_level = 1.0;
+                self.reset_image_state(true);
                 self.parse_label_file();
 
                 // Save image index to settings
@@ -656,11 +636,7 @@ impl DatasetCleanerApp {
         if new_index != self.current_index {
             info!("Jumping by {} to index {}", offset, new_index);
             self.current_index = new_index;
-            self.current_texture = None;
-            self.current_label = None;
-            self.dominant_color = None;
-            self.image_load_error = None;
-            self.zoom_level = 1.0;
+            self.reset_image_state(true);
             self.parse_label_file();
 
             // Save image index to settings
@@ -821,10 +797,7 @@ impl eframe::App for DatasetCleanerApp {
                 }
 
                 // Clear current texture to force reload
-                self.current_texture = None;
-                self.current_label = None;
-                self.dominant_color = None;
-                self.image_load_error = None;
+                self.reset_image_state(false);
 
                 // Parse the label for the current image
                 self.parse_label_file();
@@ -840,10 +813,7 @@ impl eframe::App for DatasetCleanerApp {
                 }
 
                 // Clear current texture to force reload
-                self.current_texture = None;
-                self.current_label = None;
-                self.dominant_color = None;
-                self.image_load_error = None;
+                self.reset_image_state(false);
 
                 // Parse the label for the current image
                 self.parse_label_file();
