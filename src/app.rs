@@ -155,6 +155,20 @@ impl DatasetCleanerApp {
         }
     }
 
+    /// Reload the dataset and reapply filters without automatic navigation
+    /// 
+    /// Use this when you want to control navigation yourself after reload,
+    /// such as during delete operations where position should be preserved.
+    fn reload_dataset_without_navigation(&mut self, reset_zoom: bool) {
+        self.reload_and_refresh(reset_zoom);
+        
+        // Reapply filters but skip navigation - caller will handle position
+        if self.filter.is_active() {
+            info!("Reapplying filters after dataset reload (skipping auto-navigation)");
+            self.apply_filters_no_navigation();
+        }
+    }
+
     pub fn load_dataset(&mut self, path: PathBuf) {
         info!("Loading dataset from: {:?}", path);
         self.dataset.load(path.clone());
@@ -287,6 +301,14 @@ impl DatasetCleanerApp {
             .to_string();
         info!("Image filename: {}", image_filename);
 
+        // Save current filtered position if filters are active
+        let current_filtered_pos = if self.filter.is_active() {
+            self.filter.get_filtered_index(self.current_index)
+        } else {
+            None
+        };
+        info!("Current filtered position: {:?}", current_filtered_pos);
+
         // Get corresponding label file path
         let label_path = core::operations::get_label_path_for_image(img_path);
         info!("Label path: {:?}", label_path);
@@ -330,11 +352,44 @@ impl DatasetCleanerApp {
 
         // Reload the current split to refresh the file list
         info!("Reloading current split");
-        self.reload_dataset_with_filters(false);
+        self.reload_dataset_without_navigation(false);
         info!(
             "After reload, dataset has {} images",
             self.dataset.get_image_files().len()
         );
+
+        // Navigate to appropriate position after deletion
+        if let Some(filtered_pos) = current_filtered_pos {
+            // Filters were active - maintain position in filtered list
+            info!(
+                "Filters active, restoring position. Previous filtered pos: {}",
+                filtered_pos
+            );
+
+            // Try to stay at the same filtered position (which now shows the next image)
+            // If we were at the end, go to the new last position
+            let new_filtered_count = self.filter.filtered_count();
+            let target_filtered_pos = if filtered_pos >= new_filtered_count {
+                new_filtered_count.saturating_sub(1)
+            } else {
+                filtered_pos
+            };
+
+            if let Some(actual_index) = self.filter.get_actual_index(target_filtered_pos) {
+                info!(
+                    "Navigating to actual index {} (filtered pos {})",
+                    actual_index, target_filtered_pos
+                );
+                self.current_index = actual_index;
+                self.reset_image_state(false);
+                self.parse_label_file();
+            }
+        } else {
+            // No filters active - just ensure index is valid
+            // The adjust_current_index call in reload already handled this
+            self.parse_label_file();
+        }
+
         info!("=== DELETE_CURRENT_IMAGE COMPLETED SUCCESSFULLY ===");
     }
 
@@ -463,6 +518,16 @@ impl DatasetCleanerApp {
 
     /// Apply current filter criteria and recompute filtered indices
     pub fn apply_filters(&mut self) {
+        self.apply_filters_internal(true);
+    }
+
+    /// Apply filters without automatic navigation (used during delete operations)
+    fn apply_filters_no_navigation(&mut self) {
+        self.apply_filters_internal(false);
+    }
+
+    /// Internal method to apply filters with optional navigation
+    fn apply_filters_internal(&mut self, navigate: bool) {
         let image_files = self.dataset.get_image_files();
         self.filter.total_count = image_files.len();
         self.filter.filtered_indices =
@@ -474,17 +539,19 @@ impl DatasetCleanerApp {
             self.filter.total_count
         );
 
-        // If current index is not in filtered list, navigate to first filtered image
-        if self.filter.is_active() && !self.filter.filtered_indices.is_empty() {
-            if let Some(filtered_idx) = self.filter.get_filtered_index(self.current_index) {
-                // Current image is in filtered list, navigate to it (updates display)
-                if let Some(actual_index) = self.filter.get_actual_index(filtered_idx) {
-                    self.navigate_to(actual_index);
-                }
-            } else {
-                // Current image not in filtered list, go to first filtered image
-                if let Some(actual_index) = self.filter.get_actual_index(0) {
-                    self.navigate_to(actual_index);
+        if navigate {
+            // If current index is not in filtered list, navigate to first filtered image
+            if self.filter.is_active() && !self.filter.filtered_indices.is_empty() {
+                if let Some(filtered_idx) = self.filter.get_filtered_index(self.current_index) {
+                    // Current image is in filtered list, navigate to it (updates display)
+                    if let Some(actual_index) = self.filter.get_actual_index(filtered_idx) {
+                        self.navigate_to(actual_index);
+                    }
+                } else {
+                    // Current image not in filtered list, go to first filtered image
+                    if let Some(actual_index) = self.filter.get_actual_index(0) {
+                        self.navigate_to(actual_index);
+                    }
                 }
             }
         }
