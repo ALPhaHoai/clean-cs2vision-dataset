@@ -121,6 +121,21 @@ impl DatasetCleanerApp {
         self.image.reset(reset_zoom);
     }
 
+    /// Helper method to adjust current index if out of bounds
+    fn adjust_current_index(&mut self) {
+        if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
+            self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
+        }
+    }
+
+    /// Helper method to reload dataset and refresh current state
+    fn reload_and_refresh(&mut self, reset_zoom: bool) {
+        self.dataset.load_current_split();
+        self.adjust_current_index();
+        self.reset_image_state(reset_zoom);
+        self.parse_label_file();
+    }
+
     pub fn load_dataset(&mut self, path: PathBuf) {
         info!("Loading dataset from: {:?}", path);
         self.dataset.load(path.clone());
@@ -284,24 +299,11 @@ impl DatasetCleanerApp {
 
         // Reload the current split to refresh the file list
         info!("Reloading current split");
-        self.dataset.load_current_split();
+        self.reload_and_refresh(false);
         info!(
             "After reload, dataset has {} images",
             self.dataset.get_image_files().len()
         );
-
-        // Adjust index if needed
-        if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0 {
-            self.current_index -= 1;
-            info!("Adjusted index to {}", self.current_index);
-        }
-
-        // Clear current texture
-        self.reset_image_state(false);
-        info!("Cleared current state");
-
-        // Parse the label for the new current image
-        self.parse_label_file();
         info!("=== DELETE_CURRENT_IMAGE COMPLETED SUCCESSFULLY ===");
     }
 
@@ -337,10 +339,8 @@ impl DatasetCleanerApp {
                 self.current_index = index;
             }
 
-            // Clear current texture to force reload
+            // Clear current texture and reload
             self.reset_image_state(false);
-
-            // Parse the label for the current/restored image
             self.parse_label_file();
         }
     }
@@ -374,19 +374,7 @@ impl DatasetCleanerApp {
             }
 
             // Reload the dataset to refresh file list
-            self.dataset.load_current_split();
-
-            // Adjust index if needed
-            if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0
-            {
-                self.current_index -= 1;
-            }
-
-            // Clear current texture
-            self.reset_image_state(false);
-
-            // Parse the label for the new current image
-            self.parse_label_file();
+            self.reload_and_refresh(false);
         }
     }
 
@@ -626,19 +614,15 @@ impl eframe::App for DatasetCleanerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll for batch processing updates
         let mut complete_stats = None;
-        let mut cancelled = false;
         if let Some(receiver) = &self.batch.progress_receiver {
             while let Ok(message) = receiver.try_recv() {
                 match message {
                     BatchProgressMessage::Progress(stats) => {
                         self.batch.stats = Some(stats);
                     }
-                    BatchProgressMessage::Complete(stats) => {
+                    BatchProgressMessage::Complete(stats)
+                    | BatchProgressMessage::Cancelled(stats) => {
                         complete_stats = Some(stats);
-                    }
-                    BatchProgressMessage::Cancelled(stats) => {
-                        complete_stats = Some(stats);
-                        cancelled = true;
                     }
                 }
             }
@@ -651,40 +635,8 @@ impl eframe::App for DatasetCleanerApp {
             self.batch.progress_receiver = None;
             self.batch.cancel_flag = None;
 
-            // Don't close the dialog immediately if cancelled, let user see the stats
-            if !cancelled {
-                // Reload the dataset to refresh file list
-                self.dataset.load_current_split();
-
-                // Adjust current index if needed
-                if self.current_index >= self.dataset.get_image_files().len()
-                    && self.current_index > 0
-                {
-                    self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
-                }
-
-                // Clear current texture to force reload
-                self.reset_image_state(false);
-
-                // Parse the label for the current image
-                self.parse_label_file();
-            } else {
-                // For cancelled operations, still reload but keep showing the dialog
-                self.dataset.load_current_split();
-
-                // Adjust current index if needed
-                if self.current_index >= self.dataset.get_image_files().len()
-                    && self.current_index > 0
-                {
-                    self.current_index = self.dataset.get_image_files().len().saturating_sub(1);
-                }
-
-                // Clear current texture to force reload
-                self.reset_image_state(false);
-
-                // Parse the label for the current image
-                self.parse_label_file();
-            }
+            // Reload dataset and refresh state (same for both cancelled and completed)
+            self.reload_and_refresh(false);
         }
 
         // Poll for balance analysis updates
