@@ -1,8 +1,8 @@
 use eframe::egui;
-use egui::{ColorImage, TextureHandle};
+use egui::ColorImage;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::channel;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -15,7 +15,7 @@ mod log_formatter;
 use log_formatter::BracketedFormatter;
 
 mod label_parser;
-use label_parser::{parse_label_file, LabelInfo};
+use label_parser::parse_label_file;
 
 mod dataset;
 use dataset::{Dataset, DatasetSplit};
@@ -36,18 +36,8 @@ use settings::Settings;
 mod undo_manager;
 use undo_manager::{UndoManager, UndoState};
 
-#[derive(Default, Clone)]
-pub struct BatchStats {
-    pub total_scanned: usize,
-    pub total_deleted: usize,
-    pub current_progress: usize,
-}
-
-enum BatchProgressMessage {
-    Progress(BatchStats),
-    Complete(BatchStats),
-    Cancelled(BatchStats),
-}
+mod app_state;
+use app_state::{BatchProgressMessage, BatchState, ImageState, UIState};
 
 fn main() -> Result<(), eframe::Error> {
     // Create logs directory
@@ -118,25 +108,25 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[derive(Default, Clone)]
+pub struct BatchStats {
+    pub total_scanned: usize,
+    pub total_deleted: usize,
+    pub current_progress: usize,
+}
+
 pub struct DatasetCleanerApp {
+    // Core application state
     pub dataset: Dataset,
     pub current_index: usize,
-    pub current_texture: Option<TextureHandle>,
-    pub current_label: Option<LabelInfo>,
     pub config: AppConfig,
-    pub dominant_color: Option<egui::Color32>,
-    pub show_batch_delete_confirm: bool,
-    pub batch_processing: bool,
-    pub batch_stats: Option<BatchStats>,
-    batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
-    batch_cancel_flag: Option<Arc<AtomicBool>>,
-    pub undo_manager: UndoManager,
-    pub manual_index_input: String,
-    pub image_load_error: Option<String>,
     pub settings: Settings,
-    pub fullscreen_mode: bool,
-    pub show_filter_dialog: bool,
-    pub zoom_level: f32,
+    pub undo_manager: UndoManager,
+
+    // Organized state modules
+    pub image: ImageState,
+    pub ui: UIState,
+    pub batch: BatchState,
 }
 
 impl Default for DatasetCleanerApp {
@@ -180,22 +170,12 @@ impl Default for DatasetCleanerApp {
         let mut app = Self {
             dataset,
             current_index,
-            current_texture: None,
-            current_label: None,
             config,
-            dominant_color: None,
-            show_batch_delete_confirm: false,
-            batch_processing: false,
-            batch_stats: None,
-            batch_progress_receiver: None,
-            batch_cancel_flag: None,
-            undo_manager: UndoManager::new(),
-            manual_index_input: String::from("1"),
-            image_load_error: None,
             settings,
-            fullscreen_mode: false,
-            show_filter_dialog: false,
-            zoom_level: 1.0,
+            undo_manager: UndoManager::new(),
+            image: ImageState::new(),
+            ui: UIState::new(),
+            batch: BatchState::new(),
         };
 
         // Parse label for the current image if dataset was loaded
@@ -210,13 +190,7 @@ impl Default for DatasetCleanerApp {
 impl DatasetCleanerApp {
     /// Helper method to reset image-related state
     fn reset_image_state(&mut self, reset_zoom: bool) {
-        self.current_texture = None;
-        self.current_label = None;
-        self.dominant_color = None;
-        self.image_load_error = None;
-        if reset_zoom {
-            self.zoom_level = 1.0;
-        }
+        self.image.reset(reset_zoom);
     }
 
     pub fn load_dataset(&mut self, path: PathBuf) {
@@ -262,7 +236,7 @@ impl DatasetCleanerApp {
         info!("Attempting to load image: {:?}", img_path);
 
         // Clear any previous error
-        self.image_load_error = None;
+        self.image.load_error = None;
 
         match image::open(img_path) {
             Ok(img) => {
@@ -277,15 +251,15 @@ impl DatasetCleanerApp {
                     ctx.load_texture("current_image", color_image, egui::TextureOptions::LINEAR);
 
                 // Calculate dominant color
-                self.dominant_color = Self::calculate_dominant_color(&img);
+                self.image.dominant_color = Self::calculate_dominant_color(&img);
 
-                self.current_texture = Some(texture);
+                self.image.texture = Some(texture);
                 info!("Image loaded successfully");
             }
             Err(e) => {
                 let error_msg = format!("Failed to load image: {}", e);
                 error!("{:?}: {}", img_path, error_msg);
-                self.image_load_error = Some(error_msg);
+                self.image.load_error = Some(error_msg);
             }
         }
     }
@@ -297,7 +271,7 @@ impl DatasetCleanerApp {
 
     pub fn parse_label_file(&mut self) {
         if self.dataset.get_image_files().is_empty() {
-            self.current_label = None;
+            self.image.label = None;
             return;
         }
 
@@ -307,13 +281,13 @@ impl DatasetCleanerApp {
         let label_path = match file_operations::get_label_path_for_image(img_path) {
             Some(path) => path,
             None => {
-                self.current_label = None;
+                self.image.label = None;
                 return;
             }
         };
 
         // Parse label file using the dedicated module
-        self.current_label = parse_label_file(&label_path);
+        self.image.label = parse_label_file(&label_path);
     }
 
     pub fn delete_current_image(&mut self) {
@@ -489,60 +463,43 @@ impl DatasetCleanerApp {
         }
     }
 
-    pub fn next_image(&mut self) {
-        if !self.dataset.get_image_files().is_empty()
-            && self.current_index < self.dataset.get_image_files().len() - 1
-        {
-            self.current_index += 1;
+    fn navigate_to(&mut self, new_index: usize) {
+        if new_index != self.current_index {
+            self.current_index = new_index;
             self.reset_image_state(true);
-            // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
 
             // Save image index to settings
             self.settings.last_image_index = self.current_index;
             self.settings.save();
+
+            info!("Navigated to image index: {}", self.current_index);
+        }
+    }
+
+    pub fn next_image(&mut self) {
+        if !self.dataset.get_image_files().is_empty()
+            && self.current_index < self.dataset.get_image_files().len() - 1
+        {
+            self.navigate_to(self.current_index + 1);
         }
     }
 
     pub fn prev_image(&mut self) {
         if self.current_index > 0 {
-            self.current_index -= 1;
-            self.reset_image_state(true);
-            // Immediately parse the label file to ensure synchronization
-            self.parse_label_file();
-
-            // Save image index to settings
-            self.settings.last_image_index = self.current_index;
-            self.settings.save();
+            self.navigate_to(self.current_index - 1);
         }
     }
 
     pub fn jump_to_first(&mut self) {
-        if !self.dataset.get_image_files().is_empty() && self.current_index != 0 {
-            info!("Jumping to first image");
-            self.current_index = 0;
-            self.reset_image_state(true);
-            self.parse_label_file();
-
-            // Save image index to settings
-            self.settings.last_image_index = self.current_index;
-            self.settings.save();
+        if !self.dataset.get_image_files().is_empty() {
+            self.navigate_to(0);
         }
     }
 
     pub fn jump_to_last(&mut self) {
         if !self.dataset.get_image_files().is_empty() {
-            let last_index = self.dataset.get_image_files().len() - 1;
-            if self.current_index != last_index {
-                info!("Jumping to last image");
-                self.current_index = last_index;
-                self.reset_image_state(true);
-                self.parse_label_file();
-
-                // Save image index to settings
-                self.settings.last_image_index = self.current_index;
-                self.settings.save();
-            }
+            self.navigate_to(self.dataset.get_image_files().len() - 1);
         }
     }
 
@@ -560,21 +517,12 @@ impl DatasetCleanerApp {
             (self.current_index + offset as usize).min(total_images - 1)
         };
 
-        if new_index != self.current_index {
-            info!("Jumping by {} to index {}", offset, new_index);
-            self.current_index = new_index;
-            self.reset_image_state(true);
-            self.parse_label_file();
-
-            // Save image index to settings
-            self.settings.last_image_index = self.current_index;
-            self.settings.save();
-        }
+        self.navigate_to(new_index);
     }
 
     pub fn toggle_fullscreen(&mut self) {
-        self.fullscreen_mode = !self.fullscreen_mode;
-        info!("Fullscreen mode toggled: {}", self.fullscreen_mode);
+        self.ui.fullscreen_mode = !self.ui.fullscreen_mode;
+        info!("Fullscreen mode toggled: {}", self.ui.fullscreen_mode);
     }
 
     pub fn process_black_images(&mut self) {
@@ -588,19 +536,19 @@ impl DatasetCleanerApp {
             self.dataset.get_image_files().len()
         );
         // Set batch processing flag
-        self.batch_processing = true;
+        self.batch.processing = true;
 
         // Initialize stats
         let stats = BatchStats::default();
-        self.batch_stats = Some(stats);
+        self.batch.stats = Some(stats);
 
         // Create a channel for progress updates
         let (tx, rx) = channel::<BatchProgressMessage>();
-        self.batch_progress_receiver = Some(rx);
+        self.batch.progress_receiver = Some(rx);
 
         // Create cancellation flag
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.batch_cancel_flag = Some(cancel_flag.clone());
+        self.batch.cancel_flag = Some(cancel_flag.clone());
 
         // Clone the data needed for the background thread
         let image_files: Vec<PathBuf> = self.dataset.get_image_files().clone();
@@ -662,7 +610,7 @@ impl DatasetCleanerApp {
 
     pub fn cancel_batch_processing(&mut self) {
         info!("User requested batch processing cancellation");
-        if let Some(flag) = &self.batch_cancel_flag {
+        if let Some(flag) = &self.batch.cancel_flag {
             flag.store(true, Ordering::Relaxed);
         }
     }
@@ -673,11 +621,11 @@ impl eframe::App for DatasetCleanerApp {
         // Poll for batch processing updates
         let mut complete_stats = None;
         let mut cancelled = false;
-        if let Some(receiver) = &self.batch_progress_receiver {
+        if let Some(receiver) = &self.batch.progress_receiver {
             while let Ok(message) = receiver.try_recv() {
                 match message {
                     BatchProgressMessage::Progress(stats) => {
-                        self.batch_stats = Some(stats);
+                        self.batch.stats = Some(stats);
                     }
                     BatchProgressMessage::Complete(stats) => {
                         complete_stats = Some(stats);
@@ -692,10 +640,10 @@ impl eframe::App for DatasetCleanerApp {
 
         // Handle completion or cancellation outside of the borrow
         if let Some(stats) = complete_stats {
-            self.batch_stats = Some(stats);
-            self.batch_processing = false;
-            self.batch_progress_receiver = None;
-            self.batch_cancel_flag = None;
+            self.batch.stats = Some(stats);
+            self.batch.processing = false;
+            self.batch.progress_receiver = None;
+            self.batch.cancel_flag = None;
 
             // Don't close the dialog immediately if cancelled, let user see the stats
             if !cancelled {

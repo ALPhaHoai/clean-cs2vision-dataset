@@ -5,7 +5,7 @@ use eframe::egui;
 
 /// Render the batch delete confirmation dialog
 pub fn render_batch_delete_confirmation(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
-    if app.show_batch_delete_confirm {
+    if app.ui.show_batch_delete_confirm {
         egui::Window::new("✨ Remove Black Images")
             .collapsible(false)
             .resizable(false)
@@ -31,12 +31,12 @@ pub fn render_batch_delete_confirmation(app: &mut DatasetCleanerApp, ctx: &egui:
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui.button("✓ Yes, Scan & Delete").clicked() {
-                        app.show_batch_delete_confirm = false;
+                        app.ui.show_batch_delete_confirm = false;
                         app.process_black_images();
                     }
 
                     if ui.button("✗ Cancel").clicked() {
-                        app.show_batch_delete_confirm = false;
+                        app.ui.show_batch_delete_confirm = false;
                     }
                 });
             });
@@ -45,8 +45,8 @@ pub fn render_batch_delete_confirmation(app: &mut DatasetCleanerApp, ctx: &egui:
 
 /// Render the batch processing progress/results dialog
 pub fn render_batch_progress(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
-    if app.batch_processing || (app.batch_stats.is_some() && !app.show_batch_delete_confirm) {
-        egui::Window::new(if app.batch_processing {
+    if app.batch.processing || (app.batch.stats.is_some() && !app.ui.show_batch_delete_confirm) {
+        egui::Window::new(if app.batch.processing {
             "⏳ Processing..."
         } else {
             "✓ Processing Complete"
@@ -55,8 +55,8 @@ pub fn render_batch_progress(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            if let Some(stats) = &app.batch_stats {
-                if app.batch_processing {
+            if let Some(stats) = &app.batch.stats {
+                if app.batch.processing {
                     ui.label(format!(
                         "Scanning images: {}/{}",
                         stats.current_progress,
@@ -86,15 +86,16 @@ pub fn render_batch_progress(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     ui.add_space(10.0);
 
                     if ui.button("Close").clicked() {
-                        app.batch_stats = None;
+                        app.batch.stats = None;
                     }
                 }
             }
         });
 
         // Request repaint to update progress
-        if app.batch_processing {
+        if app.batch.processing {
             ctx.request_repaint();
         }
     }
 }
+

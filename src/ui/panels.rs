@@ -54,32 +54,32 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     let current_display = (app.current_index + 1).to_string();
                     
                     let response = ui.add(
-                        egui::TextEdit::singleline(&mut app.manual_index_input)
+                        egui::TextEdit::singleline(&mut app.ui.manual_index_input)
                             .desired_width(60.0)
                     );
                     
                     // Handle manual input when user presses Enter FIRST before syncing
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(new_index) = app.manual_index_input.trim().parse::<usize>() {
+                        if let Ok(new_index) = app.ui.manual_index_input.trim().parse::<usize>() {
                             if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
                                 app.current_index = new_index - 1;
-                                app.current_texture = None;
-                                app.current_label = None;
-                                app.dominant_color = None;
+                                app.image.texture = None;
+                                app.image.label = None;
+                                app.image.dominant_color = None;
                                 app.parse_label_file();
-                                app.manual_index_input = new_index.to_string();
+                                app.ui.manual_index_input = new_index.to_string();
                             } else {
                                 // Reset to current valid value if out of range
-                                app.manual_index_input = current_display.clone();
+                                app.ui.manual_index_input = current_display.clone();
                             }
                         } else {
                             // Reset to current valid value if invalid input
-                            app.manual_index_input = current_display.clone();
+                            app.ui.manual_index_input = current_display.clone();
                         }
                     } 
                     // Sync the input text with current index when not focused and not pressing Enter
-                    else if !response.has_focus() && app.manual_index_input != current_display {
-                        app.manual_index_input = current_display;
+                    else if !response.has_focus() && app.ui.manual_index_input != current_display {
+                        app.ui.manual_index_input = current_display;
                     }
                     
                     ui.label(format!("of {}", app.dataset.get_image_files().len()));
@@ -134,8 +134,8 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(20.0);
             
             // Batch delete black images button
-            let button_text = if app.batch_processing {
-                if let Some(stats) = &app.batch_stats {
+            let button_text = if app.batch.processing {
+                if let Some(stats) = &app.batch.stats {
                     let total = stats.total_scanned.max(stats.current_progress);
                     let percentage = if total > 0 {
                         (stats.current_progress as f32 / total as f32 * 100.0) as u32
@@ -152,16 +152,16 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             let button = egui::Button::new(&button_text).fill(egui::Color32::from_rgb(100, 100, 180));
             if ui.add_enabled(
-                !app.dataset.get_image_files().is_empty() && !app.batch_processing,
+                !app.dataset.get_image_files().is_empty() && !app.batch.processing,
                 button,
             )
             .clicked()
             {
-                app.show_batch_delete_confirm = true;
+                app.ui.show_batch_delete_confirm = true;
             }
             
             // Cancel button (only visible during batch processing)
-            if app.batch_processing
+            if app.batch.processing
                 && ui.button("❌ Cancel").clicked() {
                     app.cancel_batch_processing();
                 }
@@ -192,7 +192,7 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             ui.add_space(10.0);
             
             // Display dominant color
-            if let Some(color) = app.dominant_color {
+            if let Some(color) = app.image.dominant_color {
                 ui.label(egui::RichText::new(format!("{} Dominant Color", Icon::PALETTE))
                     .strong()
                     .size(16.0));
@@ -226,7 +226,7 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.add_space(10.0);
             }
             
-            if let Some(label) = &app.current_label {
+            if let Some(label) = &app.image.label {
                 // Detection count
                 ui.label(egui::RichText::new(format!("{} Detections: {}", Icon::TARGET, label.detections.len()))
                     .strong()
@@ -302,12 +302,12 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             });
         } else {
             // Load image if not already loaded
-            if app.current_texture.is_none() {
+            if app.image.texture.is_none() {
                 app.load_current_image(ctx);
             }
             
             // Display the image
-            if let Some(texture) = &app.current_texture {
+            if let Some(texture) = &app.image.texture {
                 let available_size = ui.available_size();
                 let img_size = texture.size_vec2();
                 
@@ -317,7 +317,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         // Zoom in/out based on scroll direction
                         // Positive scroll_delta.y = scroll up = zoom in
                         let zoom_delta = i.smooth_scroll_delta.y * 0.001;
-                        app.zoom_level = (app.zoom_level + zoom_delta).clamp(0.5, 3.0);
+                        app.image.zoom_level = (app.image.zoom_level + zoom_delta).clamp(0.5, 3.0);
                     }
                 });
                 
@@ -325,7 +325,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 let base_scale = ImageRenderer::calculate_image_scale(img_size, available_size);
                 
                 // Apply zoom level
-                let scale = base_scale * app.zoom_level;
+                let scale = base_scale * app.image.zoom_level;
                 
                 let scaled_size = img_size * scale;
                 
@@ -340,8 +340,8 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.put(image_rect, egui::Image::new((texture.id(), scaled_size)));
                 
                 // Draw bounding boxes if label data exists (not in fullscreen mode)
-                if !app.fullscreen_mode {
-                    if let Some(label) = &app.current_label {
+                if !app.ui.fullscreen_mode {
+                    if let Some(label) = &app.image.label {
                         ImageRenderer::draw_bounding_boxes(
                             ui.painter(),
                             label,
@@ -353,7 +353,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 }
 
                 // Show fullscreen hint overlay
-                if app.fullscreen_mode {
+                if app.ui.fullscreen_mode {
                     // Top-center overlay with hint
                     let hint_text = "Press Space to exit fullscreen";
                     let font_id = egui::FontId::proportional(16.0);
@@ -387,8 +387,8 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 }
 
                 // Show zoom indicator when not at 100%
-                if (app.zoom_level - 1.0).abs() > 0.01 {
-                    let zoom_text = format!("{}%", (app.zoom_level * 100.0) as i32);
+                if (app.image.zoom_level - 1.0).abs() > 0.01 {
+                    let zoom_text = format!("{}%", (app.image.zoom_level * 100.0) as i32);
                     let font_id = egui::FontId::proportional(14.0);
                     let galley = ui.painter().layout_no_wrap(
                         zoom_text,
@@ -421,7 +421,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 }
 
                 // --- Navigation Overlays (hidden in fullscreen mode) ---
-                if !app.fullscreen_mode {
+                if !app.ui.fullscreen_mode {
                     let overlay_width = 60.0; // Width of the clickable area
                     
                     // Previous Button (Left)
@@ -537,7 +537,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     }
                 }
 
-            } else if let Some(error_msg) = &app.image_load_error {
+            } else if let Some(error_msg) = &app.image.load_error {
                 // Display error message instead of loading spinner
                 ui.centered_and_justified(|ui| {
                     ui.vertical_centered(|ui| {
@@ -566,3 +566,4 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
         }
     });
 }
+

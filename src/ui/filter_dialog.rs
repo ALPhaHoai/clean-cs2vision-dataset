@@ -3,7 +3,7 @@ use eframe::egui;
 
 /// Render a placeholder filter dialog
 pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
-    if !app.show_filter_dialog {
+    if !app.ui.show_filter_dialog {
         return;
     }
 
@@ -44,8 +44,9 @@ pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.add_space(10.0);
 
                 if ui.button("OK").clicked() {
-                    app.show_filter_dialog = false;
+                    app.ui.show_filter_dialog = false;
                 }
             });
         });
 }
+

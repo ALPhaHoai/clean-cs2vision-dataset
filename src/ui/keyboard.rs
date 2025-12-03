@@ -13,17 +13,17 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         info!("[KEYBOARD] Escape key pressed");
 
         // Priority order: filter dialog, batch confirmation, batch processing
-        if app.show_filter_dialog {
-            app.show_filter_dialog = false;
+        if app.ui.show_filter_dialog {
+            app.ui.show_filter_dialog = false;
             info!("[KEYBOARD] Closed filter dialog");
-        } else if app.show_batch_delete_confirm {
-            app.show_batch_delete_confirm = false;
+        } else if app.ui.show_batch_delete_confirm {
+            app.ui.show_batch_delete_confirm = false;
             info!("[KEYBOARD] Closed batch delete confirmation dialog");
-        } else if app.batch_processing {
+        } else if app.batch.processing {
             app.cancel_batch_processing();
             info!("[KEYBOARD] Cancelled batch processing");
-        } else if app.fullscreen_mode {
-            app.fullscreen_mode = false;
+        } else if app.ui.fullscreen_mode {
+            app.ui.fullscreen_mode = false;
             info!("[KEYBOARD] Exited fullscreen mode");
         }
         return; // Don't process other shortcuts when Escape is pressed
@@ -37,19 +37,19 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
     // Zoom shortcuts
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Num0)) {
         info!("[KEYBOARD] Ctrl+0 pressed - Reset zoom to 100%");
-        app.zoom_level = 1.0;
+        app.image.zoom_level = 1.0;
         return;
     }
 
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Equals)) {
         info!("[KEYBOARD] Ctrl+= pressed - Zoom in");
-        app.zoom_level = (app.zoom_level + 0.1).clamp(0.5, 3.0);
+        app.image.zoom_level = (app.image.zoom_level + 0.1).clamp(0.5, 3.0);
         return;
     }
 
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Minus)) {
         info!("[KEYBOARD] Ctrl+- pressed - Zoom out");
-        app.zoom_level = (app.zoom_level - 0.1).clamp(0.5, 3.0);
+        app.image.zoom_level = (app.image.zoom_level - 0.1).clamp(0.5, 3.0);
         return;
     }
 
@@ -67,7 +67,7 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
 
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::F)) {
         info!("[KEYBOARD] Ctrl+F pressed - Open filter dialog");
-        app.show_filter_dialog = true;
+        app.ui.show_filter_dialog = true;
         return;
     }
 
@@ -161,3 +161,4 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         app.change_split(DatasetSplit::Test);
     }
 }
+
