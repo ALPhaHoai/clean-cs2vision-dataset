@@ -30,6 +30,9 @@ mod ui;
 mod settings;
 use settings::Settings;
 
+mod undo_manager;
+use undo_manager::{UndoManager, UndoState};
+
 #[derive(Default, Clone)]
 pub struct BatchStats {
     pub total_scanned: usize,
@@ -41,16 +44,6 @@ enum BatchProgressMessage {
     Progress(BatchStats),
     Complete(BatchStats),
     Cancelled(BatchStats),
-}
-
-#[derive(Clone)]
-pub struct UndoState {
-    pub image_path: PathBuf,
-    pub label_path: Option<PathBuf>,
-    pub image_filename: String,
-    pub deleted_at: Instant,
-    pub temp_image_path: PathBuf,
-    pub temp_label_path: Option<PathBuf>,
 }
 
 fn main() -> Result<(), eframe::Error> {
@@ -134,7 +127,7 @@ pub struct DatasetCleanerApp {
     pub batch_stats: Option<BatchStats>,
     batch_progress_receiver: Option<Receiver<BatchProgressMessage>>,
     batch_cancel_flag: Option<Arc<AtomicBool>>,
-    pub undo_state: Option<UndoState>,
+    pub undo_manager: UndoManager,
     pub manual_index_input: String,
     pub image_load_error: Option<String>,
     pub settings: Settings,
@@ -193,7 +186,7 @@ impl Default for DatasetCleanerApp {
             batch_stats: None,
             batch_progress_receiver: None,
             batch_cancel_flag: None,
-            undo_state: None,
+            undo_manager: UndoManager::new(),
             manual_index_input: String::from("1"),
             image_load_error: None,
             settings,
@@ -424,9 +417,9 @@ impl DatasetCleanerApp {
             None
         };
 
-        // Create undo state
-        info!("Creating undo state");
-        self.undo_state = Some(UndoState {
+        // Create undo state and push to undo manager
+        info!("Creating undo state and adding to undo manager");
+        self.undo_manager.push_delete(UndoState {
             image_path: img_path.clone(),
             label_path,
             image_filename: image_filename.clone(),
@@ -462,7 +455,7 @@ impl DatasetCleanerApp {
     }
 
     pub fn undo_delete(&mut self) {
-        if let Some(undo_state) = self.undo_state.take() {
+        if let Some(undo_state) = self.undo_manager.undo() {
             info!(
                 "Attempting to undo delete for: {}",
                 undo_state.image_filename
@@ -470,8 +463,8 @@ impl DatasetCleanerApp {
             // Restore image file (use copy + remove for cross-drive compatibility)
             if let Err(e) = fs::copy(&undo_state.temp_image_path, &undo_state.image_path) {
                 error!("Error copying temp image back to original location: {}", e);
-                // Put undo_state back if restore failed
-                self.undo_state = Some(undo_state);
+                // Note: We can't put it back on undo stack since it's already on redo stack
+                // User can try redo to delete again
                 return;
             }
 
@@ -517,22 +510,59 @@ impl DatasetCleanerApp {
         }
     }
 
-    pub fn finalize_delete(&mut self) {
-        if let Some(undo_state) = self.undo_state.take() {
-            // Permanently delete temp files
-            if undo_state.temp_image_path.exists() {
-                if let Err(e) = fs::remove_file(&undo_state.temp_image_path) {
-                    error!("Error deleting temp image: {}", e);
-                }
+    pub fn redo_delete(&mut self) {
+        if let Some(undo_state) = self.undo_manager.redo() {
+            info!(
+                "Attempting to redo delete for: {}",
+                undo_state.image_filename
+            );
+
+            // Re-delete: move files back to temp location
+            // Use copy + remove for cross-drive compatibility
+            if let Err(e) = fs::copy(&undo_state.image_path, &undo_state.temp_image_path) {
+                error!("Error re-copying image to temp: {}", e);
+                return;
             }
 
-            if let Some(temp_label) = &undo_state.temp_label_path {
-                if temp_label.exists() {
-                    if let Err(e) = fs::remove_file(temp_label) {
-                        error!("Error deleting temp label: {}", e);
+            // Remove original image after successful copy
+            if let Err(e) = fs::remove_file(&undo_state.image_path) {
+                error!("Error removing original image after re-copy: {}", e);
+                // Try to clean up the temp file
+                let _ = fs::remove_file(&undo_state.temp_image_path);
+                return;
+            }
+
+            // Re-delete label file if it exists
+            if let (Some(orig_label), Some(temp_label)) =
+                (&undo_state.label_path, &undo_state.temp_label_path)
+            {
+                if orig_label.exists() {
+                    if let Err(e) = fs::copy(orig_label, temp_label) {
+                        error!("Error re-copying label to temp: {}", e);
+                    } else if let Err(e) = fs::remove_file(orig_label) {
+                        error!("Error removing original label after re-copy: {}", e);
+                        let _ = fs::remove_file(temp_label);
                     }
                 }
             }
+
+            // Reload the dataset to refresh file list
+            self.dataset.load_current_split();
+
+            // Adjust index if needed
+            if self.current_index >= self.dataset.get_image_files().len() && self.current_index > 0
+            {
+                self.current_index -= 1;
+            }
+
+            // Clear current texture
+            self.current_texture = None;
+            self.current_label = None;
+            self.dominant_color = None;
+            self.image_load_error = None;
+
+            // Parse the label for the new current image
+            self.parse_label_file();
         }
     }
 

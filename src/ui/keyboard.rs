@@ -124,8 +124,24 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
     // Ctrl+Z - Undo delete
     if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Z)) {
         info!("[KEYBOARD] Ctrl+Z pressed - Undo delete");
-        if app.undo_state.is_some() {
+        if app.undo_manager.can_undo() {
             app.undo_delete();
+        }
+    }
+
+    // Ctrl+Y - Redo delete (Windows standard)
+    if ctx.input(|i| i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Y)) {
+        info!("[KEYBOARD] Ctrl+Y pressed - Redo delete");
+        if app.undo_manager.can_redo() {
+            app.redo_delete();
+        }
+    }
+
+    // Ctrl+Shift+Z - Redo delete (cross-platform alternative)
+    if ctx.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Z)) {
+        info!("[KEYBOARD] Ctrl+Shift+Z pressed - Redo delete");
+        if app.undo_manager.can_redo() {
+            app.redo_delete();
         }
     }
 

@@ -24,10 +24,10 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 ### 🗂️ Dataset Management
 - **Split Navigation**: Switch between train, validation, and test splits
 - **Individual Deletion**: Delete images and their corresponding label files with a single action
-- **Undo/Redo System**: Undo deletions within 3 seconds with automatic finalization
+- **Unlimited Undo/Redo Stack**: Undo and redo multiple deletions with full history (no timeout)
 - **Confirmation Dialog**: Prevents accidental deletions with a confirmation prompt
 - **Organized Structure**: Works with standard YOLO dataset folder structure
-- **Toast Notifications**: Visual feedback for successful actions like deletions and undos
+- **Toast Notifications**: Visual feedback showing undo/redo availability and action counts
 
 ### 🧹 Batch Operations
 - **Black Image Removal**: Automatically detect and remove images with black or near-black dominant colors
@@ -103,8 +103,8 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
    - Bounding boxes are overlaid on the image with class-specific colors
    - Press **Delete** key or click **🗑 Delete Image & Label** to remove bad samples
    - Confirm deletion in the popup dialog
-   - Toast notification appears on successful deletion
-   - Press **Ctrl+Z** within 3 seconds to undo if needed
+   - Toast notification shows undo/redo availability and counts
+   - Press **Ctrl+Z** to undo or **Ctrl+Y** to redo (unlimited history)
 
 6. **Batch Remove Black Images**
    - Click **🧹 Remove Black Images** button to detect and remove images with black/near-black content
@@ -194,7 +194,9 @@ Label files (`.txt`) should follow the YOLO format:
 | Key | Action |
 |-----|--------|
 | **Delete** | Delete current image & label |
-| **Ctrl+Z** | Undo last deletion (within 3 seconds) |
+| **Ctrl+Z** | Undo last deletion |
+| **Ctrl+Y** | Redo last undone deletion |
+| **Ctrl+Shift+Z** | Redo (alternative shortcut) |
 | **Space** | Toggle fullscreen mode |
 | **Escape** | Close dialogs / Exit fullscreen |
 | **Ctrl+O** | Open dataset folder |
@@ -232,13 +234,15 @@ clean-cs2vision-dataset/
 │   ├── image_analysis.rs    # Image color analysis and black detection
 │   ├── log_formatter.rs     # Custom bracketed log formatter
 │   ├── settings.rs          # Persistent user settings management
+│   ├── undo_manager.rs      # Undo/redo stack management
 │   └── ui/                  # User interface modules
 │       ├── mod.rs           # UI module exports
 │       ├── panels.rs        # UI panels (top, bottom, label, central)
 │       ├── keyboard.rs      # Keyboard shortcut handling
 │       ├── batch_dialogs.rs # Batch operation dialogs and progress
 │       ├── image_renderer.rs # Image rendering with bounding boxes
-│       └── toast.rs         # Toast notification system
+│       ├── filter_dialog.rs # Filter dialog (placeholder)
+│       └── toast.rs         # Toast notification system with undo/redo UI
 ├── sample-dataset/          # Sample dataset for testing
 │   ├── train/               # Training split with Ghibli-style images
 │   ├── val/                 # Validation split
@@ -260,12 +264,14 @@ The application follows a modular architecture:
 - **`image_analysis.rs`**: Provides image color analysis using k-means clustering in LAB color space. Includes functions to calculate dominant colors and detect black/near-black images
 - **`log_formatter.rs`**: Custom log formatter that wraps log fields in brackets for improved readability (timestamp, level, function, location)
 - **`settings.rs`**: Manages persistent user preferences (dataset path, window size, split, image index). Settings are saved as JSON next to the executable for portability
+- **`undo_manager.rs`**: Stack-based undo/redo management supporting unlimited history with standard behavior (new actions clear redo stack)
 - **`ui/`**: Contains all UI-related code, separated by functionality:
   - `panels.rs`: Renders all UI panels (navigation, labels, image display) using Phosphor icons
-  - `keyboard.rs`: Handles keyboard input and shortcuts (navigation, delete, undo)
+  - `keyboard.rs`: Handles keyboard input and shortcuts (navigation, delete, undo, redo)
   - `batch_dialogs.rs`: Manages batch operation dialogs (confirmation, progress, results)
   - `image_renderer.rs`: Renders images with overlaid bounding boxes
-  - `toast.rs`: Toast notification system for user feedback
+  - `filter_dialog.rs`: Filter dialog (placeholder for future filtering features)
+  - `toast.rs`: Toast notification system showing undo/redo availability and counts
 
 ### Building for Development
 
@@ -355,7 +361,7 @@ Logs include detailed information about image operations, deletions, undo action
 3. **Check Edge Cases**: Pay special attention to images with 0 or many detections
 4. **Use Metadata**: Filter mentally by map or resolution if looking for specific issues
 5. **Keyboard Navigation**: Use arrow keys for faster navigation during review
-6. **Undo Deletions**: Accidentally deleted something? Press **Ctrl+Z** within 3 seconds to undo
+6. **Undo/Redo Deletions**: Accidentally deleted something? Press **Ctrl+Z** to undo (unlimited history). Press **Ctrl+Y** to redo if needed
 7. **Batch Black Image Removal**: Run this on each split separately after initial data collection to remove failed captures
 8. **Monitor Dominant Color**: The dominant color indicator in the label panel helps identify problematic images before batch processing
 9. **Check Logs**: Review log files in the `logs/` directory to troubleshoot issues or audit operations
