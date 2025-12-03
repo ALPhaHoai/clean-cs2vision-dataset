@@ -27,6 +27,9 @@ mod image_analysis;
 
 mod ui;
 
+mod settings;
+use settings::Settings;
+
 #[derive(Default, Clone)]
 pub struct BatchStats {
     pub total_scanned: usize,
@@ -96,10 +99,11 @@ fn main() -> Result<(), eframe::Error> {
     info!("Starting YOLO Dataset Cleaner application");
     info!("Log file created at: {:?}", log_path);
 
-    let config = AppConfig::default();
+    // Load settings to get window dimensions
+    let settings = Settings::load();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([config.window_width, config.window_height])
+            .with_inner_size([settings.window_width, settings.window_height])
             .with_title("YOLO Dataset Cleaner"),
         ..Default::default()
     };
@@ -133,30 +137,50 @@ pub struct DatasetCleanerApp {
     pub undo_state: Option<UndoState>,
     pub manual_index_input: String,
     pub image_load_error: Option<String>,
+    pub settings: Settings,
 }
 
 impl Default for DatasetCleanerApp {
     fn default() -> Self {
         let config = AppConfig::default();
+        let settings = Settings::load();
         let mut dataset = Dataset::new();
 
-        // Load default dataset path from config
-        if config.default_dataset_path.exists() {
-            info!(
-                "Default dataset path exists: {:?}",
-                config.default_dataset_path
-            );
-            dataset.load(config.default_dataset_path.clone());
+        // Prefer last dataset path from settings, fallback to config default
+        let dataset_path = settings
+            .last_dataset_path
+            .clone()
+            .or_else(|| Some(config.default_dataset_path.clone()))
+            .unwrap();
+
+        if dataset_path.exists() {
+            info!("Loading dataset from: {:?}", dataset_path);
+            dataset.load(dataset_path.clone());
+
+            // Restore last split if available
+            let split = match settings.last_split.as_str() {
+                "val" => DatasetSplit::Val,
+                "test" => DatasetSplit::Test,
+                _ => DatasetSplit::Train,
+            };
+            if split != DatasetSplit::Train {
+                dataset.change_split(split);
+            }
         } else {
-            warn!(
-                "Default dataset path does not exist: {:?}",
-                config.default_dataset_path
-            );
+            warn!("Dataset path does not exist: {:?}", dataset_path);
         }
+
+        // Restore last image index, clamped to valid range
+        let num_images = dataset.get_image_files().len();
+        let current_index = if num_images > 0 {
+            settings.last_image_index.min(num_images - 1)
+        } else {
+            0
+        };
 
         let mut app = Self {
             dataset,
-            current_index: 0,
+            current_index,
             current_texture: None,
             current_label: None,
             config,
@@ -169,9 +193,10 @@ impl Default for DatasetCleanerApp {
             undo_state: None,
             manual_index_input: String::from("1"),
             image_load_error: None,
+            settings,
         };
 
-        // Parse label for the first image if dataset was loaded
+        // Parse label for the current image if dataset was loaded
         if !app.dataset.get_image_files().is_empty() {
             app.parse_label_file();
         }
@@ -183,7 +208,7 @@ impl Default for DatasetCleanerApp {
 impl DatasetCleanerApp {
     pub fn load_dataset(&mut self, path: PathBuf) {
         info!("Loading dataset from: {:?}", path);
-        self.dataset.load(path);
+        self.dataset.load(path.clone());
         self.current_index = 0;
         self.current_texture = None;
         self.current_label = None;
@@ -195,6 +220,10 @@ impl DatasetCleanerApp {
             "Dataset loaded successfully, total images: {}",
             self.dataset.get_image_files().len()
         );
+
+        // Save dataset path to settings
+        self.settings.last_dataset_path = Some(path);
+        self.settings.save();
     }
 
     pub fn change_split(&mut self, new_split: DatasetSplit) {
@@ -211,6 +240,10 @@ impl DatasetCleanerApp {
             "Split changed, current images count: {}",
             self.dataset.get_image_files().len()
         );
+
+        // Save split to settings
+        self.settings.last_split = new_split.as_str().to_string();
+        self.settings.save();
     }
 
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
@@ -334,7 +367,7 @@ impl DatasetCleanerApp {
             error!("Source exists: {}", img_path.exists());
             error!(
                 "Dest parent exists: {}",
-                temp_image_path.parent().map_or(false, |p| p.exists())
+                temp_image_path.parent().is_some_and(|p| p.exists())
             );
             return;
         }
@@ -508,6 +541,10 @@ impl DatasetCleanerApp {
             self.image_load_error = None;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
+
+            // Save image index to settings
+            self.settings.last_image_index = self.current_index;
+            self.settings.save();
         }
     }
 
@@ -520,6 +557,10 @@ impl DatasetCleanerApp {
             self.image_load_error = None;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
+
+            // Save image index to settings
+            self.settings.last_image_index = self.current_index;
+            self.settings.save();
         }
     }
 

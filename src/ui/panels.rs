@@ -126,12 +126,9 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             if delete_btn.clicked() {
                 tracing::info!("[BUTTON] Delete button clicked!");
                 app.delete_current_image();
-            } else {
-                if delete_btn.hovered() {
-                    if ui.input(|i| i.pointer.any_click()) {
-                         tracing::warn!("[BUTTON] Delete button HOVERED and CLICKED (raw), but .clicked() is FALSE. Enabled: {}", delete_enabled);
-                    }
-                }
+            } else if delete_btn.hovered()
+            && ui.input(|i| i.pointer.any_click()) {
+                 tracing::warn!("[BUTTON] Delete button HOVERED and CLICKED (raw), but .clicked() is FALSE. Enabled: {}", delete_enabled);
             }
             
             ui.add_space(20.0);
@@ -164,11 +161,10 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             }
             
             // Cancel button (only visible during batch processing)
-            if app.batch_processing {
-                if ui.button("❌ Cancel").clicked() {
+            if app.batch_processing
+                && ui.button("❌ Cancel").clicked() {
                     app.cancel_batch_processing();
                 }
-            }
             
             ui.add_space(20.0);
 

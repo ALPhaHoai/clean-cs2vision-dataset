@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::fs;
 use tracing::{info, warn};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DatasetSplit {
     Train,
     Val,
@@ -23,6 +24,12 @@ pub struct Dataset {
     dataset_path: Option<PathBuf>,
     current_split: DatasetSplit,
     image_files: Vec<PathBuf>,
+}
+
+impl Default for Dataset {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dataset {
