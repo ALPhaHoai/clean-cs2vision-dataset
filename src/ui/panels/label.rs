@@ -2,6 +2,45 @@ use crate::app::DatasetCleanerApp;
 use eframe::egui;
 use egui_phosphor::regular as Icon;
 
+/// Format a Unix timestamp as a relative time string (e.g., "2 hours ago")
+fn format_relative_time(timestamp_str: &str) -> String {
+    // Parse the Unix timestamp
+    if let Ok(timestamp) = timestamp_str.parse::<i64>() {
+        let timestamp_dt = chrono::DateTime::from_timestamp(timestamp, 0);
+        
+        if let Some(timestamp_dt) = timestamp_dt {
+            let now = chrono::Local::now();
+            let duration = now.signed_duration_since(timestamp_dt);
+            
+            let seconds = duration.num_seconds();
+            
+            if seconds < 0 {
+                return "in the future".to_string();
+            } else if seconds < 60 {
+                return "just now".to_string();
+            } else if seconds < 3600 {
+                let minutes = seconds / 60;
+                return format!("{} minute{} ago", minutes, if minutes == 1 { "" } else { "s" });
+            } else if seconds < 86400 {
+                let hours = seconds / 3600;
+                return format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" });
+            } else if seconds < 2592000 {
+                let days = seconds / 86400;
+                return format!("{} day{} ago", days, if days == 1 { "" } else { "s" });
+            } else if seconds < 31536000 {
+                let months = seconds / 2592000;
+                return format!("{} month{} ago", months, if months == 1 { "" } else { "s" });
+            } else {
+                let years = seconds / 31536000;
+                return format!("{} year{} ago", years, if years == 1 { "" } else { "s" });
+            }
+        }
+    }
+    
+    // If parsing fails, return empty string
+    String::new()
+}
+
 /// Render the right side panel with label information
 pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::SidePanel::right("label_panel")
@@ -69,8 +108,19 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 if let Some(map) = &label.map {
                     ui.label(format!("{} Map: {}", Icon::MAP_TRIFOLD, map));
                 }
+                if let Some(loc) = &label.location {
+                    ui.label(format!("{} Location: {}", Icon::MAP_PIN, loc));
+                }
+                if let Some(pos) = &label.position {
+                    ui.label(format!("{} Position: {}", Icon::CROSSHAIR, pos));
+                }
                 if let Some(time) = &label.timestamp {
-                    ui.label(format!("{} Timestamp: {}", Icon::CLOCK, time));
+                    let relative = format_relative_time(time);
+                    if !relative.is_empty() {
+                        ui.label(format!("{} Timestamp: {} ({})", Icon::CLOCK, time, relative));
+                    } else {
+                        ui.label(format!("{} Timestamp: {}", Icon::CLOCK, time));
+                    }
                 }
 
                 ui.add_space(10.0);

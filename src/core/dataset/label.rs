@@ -15,6 +15,8 @@ pub struct LabelInfo {
     pub detections: Vec<YoloDetection>,
     pub resolution: Option<String>,
     pub map: Option<String>,
+    pub location: Option<String>,
+    pub position: Option<String>,
     pub timestamp: Option<String>,
 }
 
@@ -33,13 +35,15 @@ pub fn parse_label_file(label_path: &PathBuf) -> Option<LabelInfo> {
     let mut detections = Vec::new();
     let mut resolution = None;
     let mut map = None;
+    let mut location = None;
+    let mut position = None;
     let mut timestamp = None;
     
     for line in content.lines() {
         let line = line.trim();
         
         // Parse metadata from comment line
-        // Format: # Resolution: 2560x1440, Map: de_dust2, Time: 1764637338
+        // Format: # Resolution: 2560x1440, Map: de_dust2, Location: ARamp, Position: (1324.38,3023.45,154.30), Time: 1764776144
         if line.starts_with('#') {
             let parts: Vec<&str> = line[1..].split(',').collect();
             for part in parts {
@@ -48,6 +52,10 @@ pub fn parse_label_file(label_path: &PathBuf) -> Option<LabelInfo> {
                     resolution = Some(res.trim().to_string());
                 } else if let Some(m) = part.strip_prefix("Map:") {
                     map = Some(m.trim().to_string());
+                } else if let Some(loc) = part.strip_prefix("Location:") {
+                    location = Some(loc.trim().to_string());
+                } else if let Some(pos) = part.strip_prefix("Position:") {
+                    position = Some(pos.trim().to_string());
                 } else if let Some(t) = part.strip_prefix("Time:") {
                     timestamp = Some(t.trim().to_string());
                 }
@@ -80,6 +88,8 @@ pub fn parse_label_file(label_path: &PathBuf) -> Option<LabelInfo> {
         detections,
         resolution,
         map,
+        location,
+        position,
         timestamp,
     })
 }
