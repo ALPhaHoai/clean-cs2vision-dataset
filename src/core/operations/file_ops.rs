@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
 /// Result type for file operations
@@ -93,7 +93,7 @@ pub fn restore_file(temp_path: &PathBuf, original_path: &PathBuf) -> FileOpResul
 /// # Returns
 /// * `Some(PathBuf)` if the path conversion was successful
 /// * `None` if the path couldn't be converted to a string
-pub fn get_label_path_for_image(image_path: &PathBuf) -> Option<PathBuf> {
+pub fn get_label_path_for_image(image_path: &Path) -> Option<PathBuf> {
     image_path.to_str().map(|img_str| {
         let label_str = img_str
             .replace("\\images\\", "\\labels\\")

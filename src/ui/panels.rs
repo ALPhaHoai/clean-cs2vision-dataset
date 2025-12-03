@@ -83,7 +83,28 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         app.ui.manual_index_input = current_display;
                     }
                     
-                    ui.label(format!("of {}", app.dataset.get_image_files().len()));
+                    // Show filtered count when filters are active
+                    if app.filter.is_active() {
+                        ui.label(format!(
+                            "of {} ({} total)",
+                            app.filter.filtered_count(),
+                            app.dataset.get_image_files().len()
+                        ));
+                        
+                        // Filter status badge
+                        ui.label(
+                            egui::RichText::new(format!("{} Filtered", Icon::FUNNEL))
+                                .color(egui::Color32::from_rgb(100, 149, 237))
+                                .strong()
+                        );
+                        
+                        // Quick clear filters button
+                        if ui.small_button(format!("{} Clear", Icon::X)).clicked() {
+                            app.clear_filters();
+                        }
+                    } else {
+                        ui.label(format!("of {}", app.dataset.get_image_files().len()));
+                    }
                 });
             }
         });

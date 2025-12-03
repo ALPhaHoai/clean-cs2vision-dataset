@@ -135,3 +135,68 @@ impl BalanceAnalysisState {
         }
     }
 }
+
+/// Filter state for image filtering by team, player count, etc.
+#[derive(Default)]
+pub struct FilterState {
+    /// Current filter criteria
+    pub criteria: crate::core::filter::FilterCriteria,
+    /// Cached list of filtered indices (indices into the original image list)
+    pub filtered_indices: Vec<usize>,
+    /// Total number of images before filtering
+    pub total_count: usize,
+}
+
+impl FilterState {
+    /// Create a new FilterState with default values
+    pub fn new() -> Self {
+        Self {
+            criteria: Default::default(),
+            filtered_indices: Vec::new(),
+            total_count: 0,
+        }
+    }
+
+    /// Check if any filters are currently active
+    pub fn is_active(&self) -> bool {
+        self.criteria.is_active()
+    }
+
+    /// Clear all filters and reset to unfiltered state
+    pub fn clear(&mut self) {
+        self.criteria.clear();
+        self.filtered_indices.clear();
+        self.total_count = 0;
+    }
+
+    /// Get the actual (unfiltered) index from a filtered index
+    /// Returns None if the filtered index is out of bounds
+    pub fn get_actual_index(&self, filtered_index: usize) -> Option<usize> {
+        if self.is_active() {
+            self.filtered_indices.get(filtered_index).copied()
+        } else {
+            Some(filtered_index)
+        }
+    }
+
+    /// Get the filtered (virtual) index from an actual index
+    /// Returns None if the actual index is not in the filtered list
+    pub fn get_filtered_index(&self, actual_index: usize) -> Option<usize> {
+        if self.is_active() {
+            self.filtered_indices
+                .iter()
+                .position(|&idx| idx == actual_index)
+        } else {
+            Some(actual_index)
+        }
+    }
+
+    /// Get the count of filtered images (or total if no filter active)
+    pub fn filtered_count(&self) -> usize {
+        if self.is_active() {
+            self.filtered_indices.len()
+        } else {
+            self.total_count
+        }
+    }
+}

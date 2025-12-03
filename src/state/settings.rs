@@ -1,3 +1,4 @@
+use crate::core::filter::FilterCriteria;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -20,6 +21,10 @@ pub struct Settings {
 
     /// Last image index in the dataset
     pub last_image_index: usize,
+
+    /// Last active filter configuration
+    #[serde(default)]
+    pub filter_criteria: FilterCriteria,
 }
 
 impl Default for Settings {
@@ -30,6 +35,7 @@ impl Default for Settings {
             window_height: 800.0,
             last_split: "train".to_string(),
             last_image_index: 0,
+            filter_criteria: FilterCriteria::default(),
         }
     }
 }
@@ -115,6 +121,7 @@ mod tests {
         assert_eq!(settings.last_split, "train");
         assert_eq!(settings.last_image_index, 0);
         assert!(settings.last_dataset_path.is_none());
+        assert!(!settings.filter_criteria.is_active());
     }
 
     #[test]
@@ -125,6 +132,7 @@ mod tests {
             window_height: 720.0,
             last_split: "val".to_string(),
             last_image_index: 42,
+            filter_criteria: FilterCriteria::default(),
         };
 
         let json = serde_json::to_string(&settings).unwrap();
@@ -138,5 +146,6 @@ mod tests {
         assert_eq!(loaded.window_height, 720.0);
         assert_eq!(loaded.last_split, "val");
         assert_eq!(loaded.last_image_index, 42);
+        assert!(!loaded.filter_criteria.is_active());
     }
 }

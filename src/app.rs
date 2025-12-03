@@ -15,8 +15,8 @@ use crate::config::AppConfig;
 use crate::core;
 use crate::core::dataset::{parse_label_file, Dataset, DatasetSplit};
 use crate::state::{
-    BalanceAnalysisState, BatchProgressMessage, BatchState, ImageState, Settings, UIState,
-    UndoManager, UndoState,
+    BalanceAnalysisState, BatchProgressMessage, BatchState, FilterState, ImageState, Settings,
+    UIState, UndoManager, UndoState,
 };
 use crate::ui;
 
@@ -40,6 +40,7 @@ pub struct DatasetCleanerApp {
     pub ui: UIState,
     pub batch: BatchState,
     pub balance: BalanceAnalysisState,
+    pub filter: FilterState,
 }
 
 impl Default for DatasetCleanerApp {
@@ -80,6 +81,9 @@ impl Default for DatasetCleanerApp {
             0
         };
 
+        // Clone filter criteria before moving settings into app
+        let filter_criteria = settings.filter_criteria.clone();
+
         let mut app = Self {
             dataset,
             current_index,
@@ -90,11 +94,20 @@ impl Default for DatasetCleanerApp {
             ui: UIState::new(),
             batch: BatchState::new(),
             balance: BalanceAnalysisState::new(),
+            filter: FilterState {
+                criteria: filter_criteria,
+                ..FilterState::new()
+            },
         };
 
         // Parse label for the current image if dataset was loaded
         if !app.dataset.get_image_files().is_empty() {
             app.parse_label_file();
+
+            // Apply filters if they were restored from settings
+            if app.filter.is_active() {
+                app.apply_filters();
+            }
         }
 
         app
@@ -391,51 +404,150 @@ impl DatasetCleanerApp {
     }
 
     pub fn next_image(&mut self) {
-        if !self.dataset.get_image_files().is_empty()
-            && self.current_index < self.dataset.get_image_files().len() - 1
-        {
-            self.navigate_to(self.current_index + 1);
+        if self.filter.is_active() {
+            // Navigate through filtered list
+            if let Some(current_virtual) = self.filter.get_filtered_index(self.current_index) {
+                let next_virtual = current_virtual + 1;
+                if next_virtual < self.filter.filtered_count() {
+                    self.navigate_to_virtual(next_virtual);
+                }
+            }
+        } else {
+            // Normal navigation
+            if !self.dataset.get_image_files().is_empty()
+                && self.current_index < self.dataset.get_image_files().len() - 1
+            {
+                self.navigate_to(self.current_index + 1);
+            }
         }
     }
 
     pub fn prev_image(&mut self) {
-        if self.current_index > 0 {
-            self.navigate_to(self.current_index - 1);
+        if self.filter.is_active() {
+            // Navigate through filtered list
+            if let Some(current_virtual) = self.filter.get_filtered_index(self.current_index) {
+                if current_virtual > 0 {
+                    self.navigate_to_virtual(current_virtual - 1);
+                }
+            }
+        } else {
+            // Normal navigation
+            if self.current_index > 0 {
+                self.navigate_to(self.current_index - 1);
+            }
         }
     }
 
     pub fn jump_to_first(&mut self) {
-        if !self.dataset.get_image_files().is_empty() {
-            self.navigate_to(0);
+        if self.filter.is_active() {
+            // Jump to first filtered image
+            if !self.filter.filtered_indices.is_empty() {
+                self.navigate_to_virtual(0);
+            }
+        } else {
+            // Normal jump
+            if !self.dataset.get_image_files().is_empty() {
+                self.navigate_to(0);
+            }
         }
     }
 
     pub fn jump_to_last(&mut self) {
-        if !self.dataset.get_image_files().is_empty() {
-            self.navigate_to(self.dataset.get_image_files().len() - 1);
+        if self.filter.is_active() {
+            // Jump to last filtered image
+            let count = self.filter.filtered_count();
+            if count > 0 {
+                self.navigate_to_virtual(count - 1);
+            }
+        } else {
+            // Normal jump
+            if !self.dataset.get_image_files().is_empty() {
+                self.navigate_to(self.dataset.get_image_files().len() - 1);
+            }
         }
     }
 
     pub fn jump_by_offset(&mut self, offset: isize) {
-        if self.dataset.get_image_files().is_empty() {
-            return;
-        }
-
-        let total_images = self.dataset.get_image_files().len();
-        let new_index = if offset < 0 {
-            // Jump backward
-            self.current_index.saturating_sub((-offset) as usize)
+        if self.filter.is_active() {
+            // Jump through filtered list
+            if let Some(current_virtual) = self.filter.get_filtered_index(self.current_index) {
+                let total_filtered = self.filter.filtered_count();
+                let new_virtual = if offset < 0 {
+                    current_virtual.saturating_sub((-offset) as usize)
+                } else {
+                    (current_virtual + offset as usize).min(total_filtered.saturating_sub(1))
+                };
+                self.navigate_to_virtual(new_virtual);
+            }
         } else {
-            // Jump forward
-            (self.current_index + offset as usize).min(total_images - 1)
-        };
+            // Normal jump
+            if self.dataset.get_image_files().is_empty() {
+                return;
+            }
 
-        self.navigate_to(new_index);
+            let total_images = self.dataset.get_image_files().len();
+            let new_index = if offset < 0 {
+                // Jump backward
+                self.current_index.saturating_sub((-offset) as usize)
+            } else {
+                // Jump forward
+                (self.current_index + offset as usize).min(total_images - 1)
+            };
+
+            self.navigate_to(new_index);
+        }
     }
 
     pub fn toggle_fullscreen(&mut self) {
         self.ui.fullscreen_mode = !self.ui.fullscreen_mode;
         info!("Fullscreen mode toggled: {}", self.ui.fullscreen_mode);
+    }
+
+    /// Apply current filter criteria and recompute filtered indices
+    pub fn apply_filters(&mut self) {
+        let image_files = self.dataset.get_image_files();
+        self.filter.total_count = image_files.len();
+        self.filter.filtered_indices =
+            core::filter::apply_filters(image_files, &self.filter.criteria);
+
+        info!(
+            "Filters applied: {} / {} images match criteria",
+            self.filter.filtered_indices.len(),
+            self.filter.total_count
+        );
+
+        // If current index is not in filtered list, navigate to first filtered image
+        if self.filter.is_active() && !self.filter.filtered_indices.is_empty() {
+            if let Some(filtered_idx) = self.filter.get_filtered_index(self.current_index) {
+                // Current image is in filtered list, navigate to it (updates display)
+                self.navigate_to_virtual(filtered_idx);
+            } else {
+                // Current image not in filtered list, go to first filtered image
+                self.navigate_to_virtual(0);
+            }
+        }
+
+        // Save filter settings
+        self.settings.filter_criteria = self.filter.criteria.clone();
+        self.settings.save();
+    }
+
+    /// Clear all active filters
+    pub fn clear_filters(&mut self) {
+        self.filter.clear();
+
+        // Save filter settings
+        self.settings.filter_criteria = self.filter.criteria.clone();
+        self.settings.save();
+
+        info!("Filters cleared");
+    }
+
+    /// Navigate using virtual (filtered) index
+    fn navigate_to_virtual(&mut self, virtual_index: usize) {
+        if let Some(actual_index) = self.filter.get_actual_index(virtual_index) {
+            self.navigate_to(actual_index);
+        }
     }
 
     pub fn process_black_images(&mut self) {
