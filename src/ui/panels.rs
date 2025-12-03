@@ -100,6 +100,76 @@ fn handle_manual_index_input(
     false
 }
 
+/// Render the "No matching images" UI when filters are active but no results found
+fn render_no_filter_results(app: &mut DatasetCleanerApp, ui: &mut egui::Ui) {
+    ui.centered_and_justified(|ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+            
+            // Main icon and message
+            ui.label(
+                egui::RichText::new(format!("{} No Matching Images", Icon::MAGNIFYING_GLASS))
+                    .size(28.0)
+                    .color(egui::Color32::from_rgb(150, 150, 150))
+                    .strong()
+            );
+            
+            ui.add_space(15.0);
+            
+            // Explanation
+            ui.label(
+                egui::RichText::new("No images match the current filter criteria")
+                    .size(16.0)
+                    .color(egui::Color32::GRAY)
+            );
+            
+            ui.add_space(20.0);
+            
+            // Show active filter criteria
+            ui.group(|ui| {
+                ui.set_min_width(300.0);
+                ui.label(
+                    egui::RichText::new("Active Filters:")
+                        .strong()
+                        .size(14.0)
+                );
+                ui.add_space(5.0);
+                
+                // Show team filter if not All
+                if app.filter.criteria.team != crate::core::filter::TeamFilter::All {
+                    ui.label(format!("• Team: {:?}", app.filter.criteria.team));
+                }
+                
+                // Show player count filter if not Any
+                if app.filter.criteria.player_count != crate::core::filter::PlayerCountFilter::Any {
+                    ui.label(format!("• Player Count: {:?}", app.filter.criteria.player_count));
+                }
+            });
+            
+            ui.add_space(20.0);
+            
+            // Action buttons
+            ui.horizontal(|ui| {
+                if ui.button(
+                    egui::RichText::new(format!("{} Clear Filters", Icon::X))
+                        .size(16.0)
+                ).clicked() {
+                    app.clear_filters();
+                }
+                
+                ui.add_space(10.0);
+                
+                if ui.button(
+                    egui::RichText::new(format!("{} Modify Filters", Icon::FUNNEL))
+                        .size(16.0)
+                ).clicked() {
+                    app.ui.show_filter_dialog = true;
+                }
+            });
+        });
+    });
+}
+
 /// Render the top panel with navigation and dataset controls
 pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -443,72 +513,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             });
         } else if app.filter.is_active() && app.filter.filtered_count() == 0 {
             // Show "No results" message when filter has 0 matches
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(20.0);
-                    
-                    // Main icon and message
-                    ui.label(
-                        egui::RichText::new(format!("{} No Matching Images", Icon::MAGNIFYING_GLASS))
-                            .size(28.0)
-                            .color(egui::Color32::from_rgb(150, 150, 150))
-                            .strong()
-                    );
-                    
-                    ui.add_space(15.0);
-                    
-                    // Explanation
-                    ui.label(
-                        egui::RichText::new("No images match the current filter criteria")
-                            .size(16.0)
-                            .color(egui::Color32::GRAY)
-                    );
-                    
-                    ui.add_space(20.0);
-                    
-                    // Show active filter criteria
-                    ui.group(|ui| {
-                        ui.set_min_width(300.0);
-                        ui.label(
-                            egui::RichText::new("Active Filters:")
-                                .strong()
-                                .size(14.0)
-                        );
-                        ui.add_space(5.0);
-                        
-                        // Show team filter if not All
-                        if app.filter.criteria.team != crate::core::filter::TeamFilter::All {
-                            ui.label(format!("• Team: {:?}", app.filter.criteria.team));
-                        }
-                        
-                        // Show player count filter if not Any
-                        if app.filter.criteria.player_count != crate::core::filter::PlayerCountFilter::Any {
-                            ui.label(format!("• Player Count: {:?}", app.filter.criteria.player_count));
-                        }
-                    });
-                    
-                    ui.add_space(20.0);
-                    
-                    // Action buttons
-                    ui.horizontal(|ui| {
-                        if ui.button(
-                            egui::RichText::new(format!("{} Clear Filters", Icon::X))
-                                .size(16.0)
-                        ).clicked() {
-                            app.clear_filters();
-                        }
-                        
-                        ui.add_space(10.0);
-                        
-                        if ui.button(
-                            egui::RichText::new(format!("{} Modify Filters", Icon::FUNNEL))
-                                .size(16.0)
-                        ).clicked() {
-                            app.ui.show_filter_dialog = true;
-                        }
-                    });
-                });
-            });
+            render_no_filter_results(app, ui);
         } else {
             // Load image if not already loaded
             if app.image.texture.is_none() {
