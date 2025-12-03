@@ -1,6 +1,6 @@
 // Additional UI functions for batch processing
 
-use crate::DatasetCleanerApp;
+use crate::app::DatasetCleanerApp;
 use eframe::egui;
 
 /// Render the batch delete confirmation dialog
@@ -98,4 +98,3 @@ pub fn render_batch_progress(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
         }
     }
 }
-

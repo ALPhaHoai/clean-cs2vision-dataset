@@ -1,4 +1,4 @@
-use crate::{dataset::DatasetSplit, DatasetCleanerApp};
+use crate::{app::DatasetCleanerApp, core::dataset::DatasetSplit};
 use eframe::egui;
 
 /// Handle keyboard shortcuts for navigation and deletion
@@ -161,4 +161,3 @@ pub fn handle_keyboard_shortcuts(app: &mut DatasetCleanerApp, ctx: &egui::Contex
         app.change_split(DatasetSplit::Test);
     }
 }
-

@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::label_parser::{LabelInfo, YoloDetection};
+use crate::core::dataset::{LabelInfo, YoloDetection};
 use eframe::egui::{self, Color32, Painter, Rect, Vec2};
 
 /// Image rendering utilities for displaying images and bounding boxes

@@ -1,4 +1,4 @@
-use crate::DatasetCleanerApp;
+use crate::app::DatasetCleanerApp;
 use eframe::egui;
 
 /// Render the toast notification for undo/redo operations

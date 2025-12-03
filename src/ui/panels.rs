@@ -1,4 +1,5 @@
-use crate::DatasetCleanerApp;
+use crate::app::DatasetCleanerApp;
+use crate::core::dataset::DatasetSplit;
 use eframe::egui;
 use super::image_renderer::ImageRenderer;
 use egui_phosphor::regular as Icon;
@@ -24,24 +25,24 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.label("Split:");
                 
                 if ui.selectable_label(
-                    app.dataset.current_split() == crate::DatasetSplit::Train,
+                    app.dataset.current_split() == DatasetSplit::Train,
                     "Train"
                 ).clicked() {
-                    app.change_split(crate::DatasetSplit::Train);
+                    app.change_split(DatasetSplit::Train);
                 }
                 
                 if ui.selectable_label(
-                    app.dataset.current_split() == crate::DatasetSplit::Val,
+                    app.dataset.current_split() == DatasetSplit::Val,
                     "Val"
                 ).clicked() {
-                    app.change_split(crate::DatasetSplit::Val);
+                    app.change_split(DatasetSplit::Val);
                 }
                 
                 if ui.selectable_label(
-                    app.dataset.current_split() == crate::DatasetSplit::Test,
+                    app.dataset.current_split() == DatasetSplit::Test,
                     "Test"
                 ).clicked() {
-                    app.change_split(crate::DatasetSplit::Test);
+                    app.change_split(DatasetSplit::Test);
                 }
                 
                 ui.add_space(20.0);

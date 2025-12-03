@@ -2,8 +2,8 @@ use egui::TextureHandle;
 use std::sync::mpsc::Receiver;
 use std::sync::{atomic::AtomicBool, Arc};
 
-use crate::label_parser::LabelInfo;
-use crate::BatchStats;
+use crate::app::BatchStats;
+use crate::core::dataset::LabelInfo;
 
 /// Batch progress message types for communication between threads
 pub enum BatchProgressMessage {

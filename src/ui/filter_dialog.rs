@@ -1,4 +1,4 @@
-use crate::DatasetCleanerApp;
+use crate::app::DatasetCleanerApp;
 use eframe::egui;
 
 /// Render a placeholder filter dialog
@@ -49,4 +49,3 @@ pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             });
         });
 }
-
