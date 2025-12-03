@@ -337,7 +337,27 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         &app.config
                     );
                 }
+            } else if let Some(error_msg) = &app.image_load_error {
+                // Display error message instead of loading spinner
+                ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(
+                            egui::RichText::new("❌ Failed to Load Image")
+                                .size(24.0)
+                                .color(egui::Color32::from_rgb(220, 50, 50))
+                                .strong()
+                        );
+                        ui.add_space(10.0);
+                        ui.label(
+                            egui::RichText::new(error_msg)
+                                .size(14.0)
+                                .color(egui::Color32::GRAY)
+                        );
+                    });
+                });
             } else {
+                // Show loading spinner only if no error
                 ui.centered_and_justified(|ui| {
                     ui.spinner();
                     ui.label("Loading image...");

@@ -126,6 +126,7 @@ pub struct DatasetCleanerApp {
     batch_cancel_flag: Option<Arc<AtomicBool>>,
     pub undo_state: Option<UndoState>,
     pub manual_index_input: String,
+    pub image_load_error: Option<String>,
 }
 
 impl Default for DatasetCleanerApp {
@@ -161,6 +162,7 @@ impl Default for DatasetCleanerApp {
             batch_cancel_flag: None,
             undo_state: None,
             manual_index_input: String::from("1"),
+            image_load_error: None,
         };
 
         // Parse label for the first image if dataset was loaded
@@ -180,6 +182,7 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
+        self.image_load_error = None;
         // Parse label file for the first image
         self.parse_label_file();
         info!(
@@ -195,6 +198,7 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
+        self.image_load_error = None;
         // Parse label file for the first image
         self.parse_label_file();
         debug!(
@@ -210,6 +214,9 @@ impl DatasetCleanerApp {
 
         let img_path = &self.dataset.get_image_files()[self.current_index];
         info!("Attempting to load image: {:?}", img_path);
+
+        // Clear any previous error
+        self.image_load_error = None;
 
         match image::open(img_path) {
             Ok(img) => {
@@ -230,7 +237,9 @@ impl DatasetCleanerApp {
                 info!("Image loaded successfully");
             }
             Err(e) => {
-                error!("Failed to load image {:?}: {}", img_path, e);
+                let error_msg = format!("Failed to load image: {}", e);
+                error!("{:?}: {}", img_path, error_msg);
+                self.image_load_error = Some(error_msg);
             }
         }
     }
@@ -399,6 +408,7 @@ impl DatasetCleanerApp {
         self.current_texture = None;
         self.current_label = None;
         self.dominant_color = None;
+        self.image_load_error = None;
         info!("Cleared currentstate");
 
         // Parse the label for the new current image
@@ -455,6 +465,7 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            self.image_load_error = None;
 
             // Parse the label for the current/restored image
             self.parse_label_file();
@@ -488,6 +499,7 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            self.image_load_error = None;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
         }
@@ -499,6 +511,7 @@ impl DatasetCleanerApp {
             self.current_texture = None;
             self.current_label = None;
             self.dominant_color = None;
+            self.image_load_error = None;
             // Immediately parse the label file to ensure synchronization
             self.parse_label_file();
         }
@@ -654,6 +667,7 @@ impl eframe::App for DatasetCleanerApp {
                 self.current_texture = None;
                 self.current_label = None;
                 self.dominant_color = None;
+                self.image_load_error = None;
 
                 // Parse the label for the current image
                 self.parse_label_file();
@@ -672,6 +686,7 @@ impl eframe::App for DatasetCleanerApp {
                 self.current_texture = None;
                 self.current_label = None;
                 self.dominant_color = None;
+                self.image_load_error = None;
 
                 // Parse the label for the current image
                 self.parse_label_file();
