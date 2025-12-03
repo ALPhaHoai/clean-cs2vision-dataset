@@ -20,18 +20,48 @@ impl ImageRenderer {
     /// * `painter` - The egui Painter to draw with
     /// * `label` - The label information containing detections
     /// * `image_rect` - The rectangle where the image is displayed on screen
-    /// * `scaled_size` - The scaled size of the image
+    /// * `actual_image_size` - The actual loaded image dimensions
     /// * `config` - Application configuration for class names and colors
     pub fn draw_bounding_boxes(
         painter: &Painter,
         label: &LabelInfo,
         image_rect: Rect,
-        scaled_size: Vec2,
+        actual_image_size: Vec2,
         config: &AppConfig,
     ) {
+        // Parse the original resolution from label metadata if available
+        // This is the resolution the YOLO coordinates were generated for
+        let original_resolution = Self::parse_resolution_from_label(label);
+        
+        // Get the displayed image size from the rect
+        let displayed_size = image_rect.size();
+        
         for (i, detection) in label.detections.iter().enumerate() {
-            Self::draw_single_box(painter, detection, i, image_rect, scaled_size, config);
+            Self::draw_single_box(
+                painter,
+                detection,
+                i,
+                image_rect,
+                original_resolution,
+                actual_image_size,
+                displayed_size,
+                config,
+            );
         }
+    }
+
+    /// Parse resolution from label metadata (e.g., "2560x1440")
+    /// Returns the resolution as Vec2 if found, otherwise None
+    fn parse_resolution_from_label(label: &LabelInfo) -> Option<Vec2> {
+        if let Some(res_str) = &label.resolution {
+            let parts: Vec<&str> = res_str.split('x').collect();
+            if parts.len() == 2 {
+                if let (Ok(width), Ok(height)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>()) {
+                    return Some(Vec2::new(width, height));
+                }
+            }
+        }
+        None
     }
 
     /// Draw a single bounding box with label text
@@ -41,22 +71,49 @@ impl ImageRenderer {
     /// * `detection` - The detection to draw
     /// * `index` - The index of the detection (0-based)
     /// * `image_rect` - The rectangle where the image is displayed on screen
-    /// * `scaled_size` - The scaled size of the image
+    /// * `original_resolution` - The resolution the YOLO coords were generated for (from metadata)
+    /// * `actual_image_size` - The actual current image file dimensions
+    /// * `displayed_size` - The size of the displayed image on screen
     /// * `config` - Application configuration for class names and colors
     fn draw_single_box(
         painter: &Painter,
         detection: &YoloDetection,
         index: usize,
         image_rect: Rect,
-        scaled_size: Vec2,
+        original_resolution: Option<Vec2>,
+        actual_image_size: Vec2,
+        displayed_size: Vec2,
         config: &AppConfig,
     ) {
-        // Convert normalized YOLO coordinates to screen coordinates
-        // YOLO format: center_x, center_y, width, height (all normalized 0-1)
-        let bbox_center_x = detection.x_center * scaled_size.x;
-        let bbox_center_y = detection.y_center * scaled_size.y;
-        let bbox_width = detection.width * scaled_size.x;
-        let bbox_height = detection.height * scaled_size.y;
+        // YOLO coordinates are normalized (0-1) relative to the ORIGINAL resolution
+        // We need to: normalized -> original pixels -> actual pixels -> displayed pixels
+        
+        // Use original resolution if available, otherwise use actual image size
+        let reference_size = original_resolution.unwrap_or(actual_image_size);
+        
+        // Step 1: Convert normalized YOLO coordinates to pixel coordinates in the original resolution
+        let pixel_center_x = detection.x_center * reference_size.x;
+        let pixel_center_y = detection.y_center * reference_size.y;
+        let pixel_width = detection.width * reference_size.x;
+        let pixel_height = detection.height * reference_size.y;
+        
+        // Step 2: Scale from original resolution to actual image size (if different)
+        let scale_to_actual_x = actual_image_size.x / reference_size.x;
+        let scale_to_actual_y = actual_image_size.y / reference_size.y;
+        
+        let actual_center_x = pixel_center_x * scale_to_actual_x;
+        let actual_center_y = pixel_center_y * scale_to_actual_y;
+        let actual_width = pixel_width * scale_to_actual_x;
+        let actual_height = pixel_height * scale_to_actual_y;
+        
+        // Step 3: Scale from actual image size to displayed size
+        let scale_to_display_x = displayed_size.x / actual_image_size.x;
+        let scale_to_display_y = displayed_size.y / actual_image_size.y;
+        
+        let bbox_center_x = actual_center_x * scale_to_display_x;
+        let bbox_center_y = actual_center_y * scale_to_display_y;
+        let bbox_width = actual_width * scale_to_display_x;
+        let bbox_height = actual_height * scale_to_display_y;
 
         // Calculate top-left corner
         let bbox_x = bbox_center_x - (bbox_width / 2.0);

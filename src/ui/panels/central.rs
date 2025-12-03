@@ -136,7 +136,7 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                                         ui.painter(),
                                         label,
                                         image_rect,
-                                        scaled_size,
+                                        img_size,
                                         &app.config,
                                     );
                                 }
