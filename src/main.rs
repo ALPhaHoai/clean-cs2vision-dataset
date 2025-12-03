@@ -25,6 +25,9 @@ use config::AppConfig;
 
 mod image_analysis;
 
+mod file_operations;
+use file_operations::{delete_image_with_label, restore_image_with_label};
+
 mod ui;
 
 mod settings;
@@ -300,8 +303,8 @@ impl DatasetCleanerApp {
 
         let img_path = &self.dataset.get_image_files()[self.current_index];
 
-        // Get corresponding label file path
-        let label_path = match self.get_label_path_for_image(img_path) {
+        // Get corresponding label file path using file_operations module
+        let label_path = match file_operations::get_label_path_for_image(img_path) {
             Some(path) => path,
             None => {
                 self.current_label = None;
@@ -338,7 +341,7 @@ impl DatasetCleanerApp {
         info!("Image filename: {}", image_filename);
 
         // Get corresponding label file path
-        let label_path = self.get_label_path_for_image(img_path);
+        let label_path = file_operations::get_label_path_for_image(img_path);
         info!("Label path: {:?}", label_path);
 
         // Create temp directory in system temp
@@ -346,7 +349,7 @@ impl DatasetCleanerApp {
         info!("Temp dir: {:?}", temp_dir);
 
         if let Err(e) = fs::create_dir_all(&temp_dir) {
-            eprintln!("ERROR creating temp directory: {}", e);
+            error!("ERROR creating temp directory: {}", e);
             return;
         }
         info!("Temp directory created successfully");
@@ -357,70 +360,15 @@ impl DatasetCleanerApp {
             .unwrap()
             .as_millis();
 
-        let temp_image_name = format!("{}_{}", timestamp, image_filename);
-        let temp_image_path = temp_dir.join(&temp_image_name);
-        info!("Temp image path: {:?}", temp_image_path);
-
-        // Move image to temp location (use copy + remove for cross-drive compatibility)
-        info!(
-            "Attempting to move image from {:?} to {:?}",
-            img_path, temp_image_path
-        );
-        if let Err(e) = fs::copy(img_path, &temp_image_path) {
-            error!("ERROR copying image to temp: {}", e);
-            error!("Source exists: {}", img_path.exists());
-            error!(
-                "Dest parent exists: {}",
-                temp_image_path.parent().is_some_and(|p| p.exists())
-            );
-            return;
-        }
-        info!("Image copied to temp successfully");
-
-        // Remove original image after successful copy
-        if let Err(e) = fs::remove_file(img_path) {
-            error!("ERROR removing original image after copy: {}", e);
-            // Try to clean up the temp file
-            let _ = fs::remove_file(&temp_image_path);
-            return;
-        }
-        info!("Original image removed successfully");
-
-        // Move label file to temp location if it exists
-        let temp_label_path = if let Some(ref lbl_path) = label_path {
-            if lbl_path.exists() {
-                info!("Label file exists, attempting to move: {:?}", lbl_path);
-                let temp_label_name = format!(
-                    "{}_{}",
-                    timestamp,
-                    lbl_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("label.txt")
-                );
-                let temp_lbl = temp_dir.join(&temp_label_name);
-
-                // Use copy + remove for cross-drive compatibility
-                if let Err(e) = fs::copy(lbl_path, &temp_lbl) {
-                    error!("ERROR copying label to temp: {}", e);
-                    None
-                } else if let Err(e) = fs::remove_file(lbl_path) {
-                    error!("ERROR removing original label after copy: {}", e);
-                    // Clean up temp label
-                    let _ = fs::remove_file(&temp_lbl);
-                    None
-                } else {
-                    info!("Label moved to temp successfully: {:?}", temp_lbl);
-                    Some(temp_lbl)
+        // Delete image and label using file_operations module
+        let (temp_image_path, temp_label_path) =
+            match delete_image_with_label(img_path, &temp_dir, timestamp) {
+                Ok(paths) => paths,
+                Err(e) => {
+                    error!("Failed to delete image: {}", e);
+                    return;
                 }
-            } else {
-                info!("Label file doesn't exist");
-                None
-            }
-        } else {
-            info!("No label path computed");
-            None
-        };
+            };
 
         // Create undo state and push to undo manager
         info!("Creating undo state and adding to undo manager");
@@ -449,7 +397,7 @@ impl DatasetCleanerApp {
 
         // Clear current texture
         self.reset_image_state(false);
-        info!("Cleared currentstate");
+        info!("Cleared current state");
 
         // Parse the label for the new current image
         self.parse_label_file();
@@ -462,31 +410,18 @@ impl DatasetCleanerApp {
                 "Attempting to undo delete for: {}",
                 undo_state.image_filename
             );
-            // Restore image file (use copy + remove for cross-drive compatibility)
-            if let Err(e) = fs::copy(&undo_state.temp_image_path, &undo_state.image_path) {
-                error!("Error copying temp image back to original location: {}", e);
-                // Note: We can't put it back on undo stack since it's already on redo stack
-                // User can try redo to delete again
+
+            // Restore image and label files using file_operations module
+            if let Err(e) = restore_image_with_label(
+                &undo_state.temp_image_path,
+                &undo_state.image_path,
+                &undo_state.temp_label_path,
+                &undo_state.label_path,
+            ) {
+                error!("Error restoring files: {}", e);
                 return;
             }
-
-            // Remove temp image after successful copy
-            if let Err(e) = fs::remove_file(&undo_state.temp_image_path) {
-                error!("Error removing temp image after restoration: {}", e);
-                // Continue anyway since the restore was successful
-            }
-            debug!("Image successfully restored");
-
-            // Restore label file if it exists
-            if let (Some(temp_label), Some(orig_label)) =
-                (&undo_state.temp_label_path, &undo_state.label_path)
-            {
-                if let Err(e) = fs::copy(temp_label, orig_label) {
-                    error!("Error copying temp label back to original location: {}", e);
-                } else if let Err(e) = fs::remove_file(temp_label) {
-                    error!("Error removing temp label after restoration: {}", e);
-                }
-            }
+            debug!("Files successfully restored");
 
             // Reload the dataset to refresh file list
             self.dataset.load_current_split();
@@ -516,18 +451,13 @@ impl DatasetCleanerApp {
                 undo_state.image_filename
             );
 
-            // Re-delete: move files back to temp location
-            // Use copy + remove for cross-drive compatibility
-            if let Err(e) = fs::copy(&undo_state.image_path, &undo_state.temp_image_path) {
-                error!("Error re-copying image to temp: {}", e);
-                return;
-            }
-
-            // Remove original image after successful copy
-            if let Err(e) = fs::remove_file(&undo_state.image_path) {
-                error!("Error removing original image after re-copy: {}", e);
-                // Try to clean up the temp file
-                let _ = fs::remove_file(&undo_state.temp_image_path);
+            // Re-delete using file_operations module, but we need to manually handle it
+            // since delete_image_with_label expects the original paths
+            // Re-delete: move files back to temp location using move_file
+            if let Err(e) =
+                file_operations::move_file(&undo_state.image_path, &undo_state.temp_image_path)
+            {
+                error!("Error re-deleting image: {}", e);
                 return;
             }
 
@@ -536,11 +466,8 @@ impl DatasetCleanerApp {
                 (&undo_state.label_path, &undo_state.temp_label_path)
             {
                 if orig_label.exists() {
-                    if let Err(e) = fs::copy(orig_label, temp_label) {
-                        error!("Error re-copying label to temp: {}", e);
-                    } else if let Err(e) = fs::remove_file(orig_label) {
-                        error!("Error removing original label after re-copy: {}", e);
-                        let _ = fs::remove_file(temp_label);
+                    if let Err(e) = file_operations::move_file(orig_label, temp_label) {
+                        error!("Error re-deleting label: {}", e);
                     }
                 }
             }
@@ -704,15 +631,10 @@ impl DatasetCleanerApp {
                         if image_analysis::is_near_black((r, g, b)) {
                             // Delete image file
                             if fs::remove_file(img_path).is_ok() {
-                                // Delete corresponding label file
-                                let label_path = img_path.to_str().map(|img_str| {
-                                    let label_str = img_str
-                                        .replace("\\images\\", "\\labels\\")
-                                        .replace("/images/", "/labels/");
-                                    PathBuf::from(label_str).with_extension("txt")
-                                });
-
-                                if let Some(label_path) = label_path {
+                                // Delete corresponding label file using file_operations
+                                if let Some(label_path) =
+                                    file_operations::get_label_path_for_image(img_path)
+                                {
                                     if label_path.exists() {
                                         let _ = fs::remove_file(&label_path);
                                     }
@@ -743,15 +665,6 @@ impl DatasetCleanerApp {
         if let Some(flag) = &self.batch_cancel_flag {
             flag.store(true, Ordering::Relaxed);
         }
-    }
-
-    fn get_label_path_for_image(&self, img_path: &PathBuf) -> Option<PathBuf> {
-        img_path.to_str().map(|img_str| {
-            let label_str = img_str
-                .replace("\\images\\", "\\labels\\")
-                .replace("/images/", "/labels/");
-            PathBuf::from(label_str).with_extension("txt")
-        })
     }
 }
 
