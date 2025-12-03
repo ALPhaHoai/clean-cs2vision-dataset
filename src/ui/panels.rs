@@ -48,11 +48,30 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 ui.add_space(20.0);
             }
             
+            // Filter button (always visible)
+            if ui.button(format!("{} Filter", Icon::FUNNEL)).clicked() {
+                app.ui.show_filter_dialog = true;
+            }
+            
+            ui.add_space(20.0);
+            
             if !app.dataset.get_image_files().is_empty() {
                 ui.horizontal(|ui| {
                     ui.label("Image");
                     
-                    let current_display = (app.current_index + 1).to_string();
+                    // Calculate the display position (virtual if filtered, actual otherwise)
+                    let current_display = if app.filter.is_active() {
+                        // Show position in filtered list
+                        if let Some(virtual_idx) = app.filter.get_filtered_index(app.current_index) {
+                            (virtual_idx + 1).to_string()
+                        } else {
+                            // Current image not in filter, shouldn't happen but fallback
+                            "?".to_string()
+                        }
+                    } else {
+                        // Show absolute position
+                        (app.current_index + 1).to_string()
+                    };
                     
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut app.ui.manual_index_input)
@@ -62,16 +81,34 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     // Handle manual input when user presses Enter FIRST before syncing
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         if let Ok(new_index) = app.ui.manual_index_input.trim().parse::<usize>() {
-                            if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
-                                app.current_index = new_index - 1;
-                                app.image.texture = None;
-                                app.image.label = None;
-                                app.image.dominant_color = None;
-                                app.parse_label_file();
-                                app.ui.manual_index_input = new_index.to_string();
+                            if app.filter.is_active() {
+                                // Navigate using virtual (filtered) index
+                                if new_index > 0 && new_index <= app.filter.filtered_count() {
+                                    if let Some(actual_idx) = app.filter.get_actual_index(new_index - 1) {
+                                        app.current_index = actual_idx;
+                                        app.image.texture = None;
+                                        app.image.label = None;
+                                        app.image.dominant_color = None;
+                                        app.parse_label_file();
+                                        app.ui.manual_index_input = new_index.to_string();
+                                    }
+                                } else {
+                                    // Reset to current valid value if out of range
+                                    app.ui.manual_index_input = current_display.clone();
+                                }
                             } else {
-                                // Reset to current valid value if out of range
-                                app.ui.manual_index_input = current_display.clone();
+                                // Navigate using absolute index
+                                if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
+                                    app.current_index = new_index - 1;
+                                    app.image.texture = None;
+                                    app.image.label = None;
+                                    app.image.dominant_color = None;
+                                    app.parse_label_file();
+                                    app.ui.manual_index_input = new_index.to_string();
+                                } else {
+                                    // Reset to current valid value if out of range
+                                    app.ui.manual_index_input = current_display.clone();
+                                }
                             }
                         } else {
                             // Reset to current valid value if invalid input

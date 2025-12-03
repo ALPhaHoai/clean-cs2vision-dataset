@@ -120,7 +120,7 @@ pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
 
             ui.add_space(15.0);
 
-            // Preview count (estimate based on current criteria)
+            // Preview count (live calculation based on current criteria)
             if app.filter.criteria.is_active() {
                 ui.separator();
                 ui.add_space(5.0);
@@ -129,19 +129,22 @@ pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                         egui::RichText::new(format!("{} Filter Preview:", Icon::MAGNIFYING_GLASS))
                             .italics(),
                     );
-                    if app.filter.total_count > 0 {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} / {} images",
-                                app.filter.filtered_count(),
-                                app.filter.total_count
-                            ))
-                            .strong()
-                            .color(egui::Color32::from_rgb(100, 149, 237)),
-                        );
-                    } else {
-                        ui.label(egui::RichText::new("Click 'Apply' to see results").italics());
-                    }
+
+                    // Calculate preview count in real-time
+                    let image_files = app.dataset.get_image_files();
+                    let preview_indices =
+                        crate::core::filter::apply_filters(image_files, &app.filter.criteria);
+                    let total = image_files.len();
+
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} / {} images",
+                            preview_indices.len(),
+                            total
+                        ))
+                        .strong()
+                        .color(egui::Color32::from_rgb(100, 149, 237)),
+                    );
                 });
                 ui.add_space(10.0);
             }
@@ -186,7 +189,7 @@ pub fn render_filter_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             );
         });
 
-    // Handle actions after the dialog  is drawn
+    // Handle actions after the dialog is drawn
     if apply_clicked {
         app.apply_filters();
     }
