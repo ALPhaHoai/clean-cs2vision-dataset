@@ -129,11 +129,30 @@ impl DatasetCleanerApp {
     }
 
     /// Helper method to reload dataset and refresh current state
+    /// 
+    /// ⚠️ **DEPRECATED**: Use `reload_dataset_with_filters()` instead to ensure
+    /// filters are automatically reapplied after dataset changes.
+    #[deprecated(note = "Use reload_dataset_with_filters() instead")]
     fn reload_and_refresh(&mut self, reset_zoom: bool) {
         self.dataset.load_current_split();
         self.adjust_current_index();
         self.reset_image_state(reset_zoom);
         self.parse_label_file();
+    }
+
+    /// Reload the dataset and automatically reapply filters if active
+    /// 
+    /// This is the recommended method to use whenever the dataset changes
+    /// (e.g., after delete, undo, batch operations) to ensure filtered
+    /// indices stay in sync with the dataset.
+    fn reload_dataset_with_filters(&mut self, reset_zoom: bool) {
+        self.reload_and_refresh(reset_zoom);
+        
+        // Automatically reapply filters if active to keep filtered_indices in sync
+        if self.filter.is_active() {
+            info!("Auto-reapplying filters after dataset reload");
+            self.apply_filters();
+        }
     }
 
     pub fn load_dataset(&mut self, path: PathBuf) {
@@ -151,6 +170,12 @@ impl DatasetCleanerApp {
         // Save dataset path to settings
         self.settings.last_dataset_path = Some(path);
         self.settings.save();
+        
+        // Reapply filters if active (using manual approach since we don't reload here)
+        if self.filter.is_active() {
+            info!("Reapplying filters after loading new dataset");
+            self.apply_filters();
+        }
     }
 
     pub fn change_split(&mut self, new_split: DatasetSplit) {
@@ -168,6 +193,12 @@ impl DatasetCleanerApp {
         // Save split to settings
         self.settings.last_split = new_split.as_str().to_string();
         self.settings.save();
+        
+        // Reapply filters if active (using manual approach since we don't reload here)
+        if self.filter.is_active() {
+            info!("Reapplying filters after changing split");
+            self.apply_filters();
+        }
     }
 
     pub fn load_current_image(&mut self, ctx: &egui::Context) {
@@ -299,7 +330,7 @@ impl DatasetCleanerApp {
 
         // Reload the current split to refresh the file list
         info!("Reloading current split");
-        self.reload_and_refresh(false);
+        self.reload_dataset_with_filters(false);
         info!(
             "After reload, dataset has {} images",
             self.dataset.get_image_files().len()
@@ -326,8 +357,8 @@ impl DatasetCleanerApp {
             }
             debug!("Files successfully restored");
 
-            // Reload the dataset to refresh file list
-            self.dataset.load_current_split();
+            // Reload the dataset and reapply filters if needed
+            self.reload_dataset_with_filters(false);
 
             // Try to find the restored image and navigate to it
             if let Some(index) = self
@@ -337,11 +368,9 @@ impl DatasetCleanerApp {
                 .position(|p| p == &undo_state.image_path)
             {
                 self.current_index = index;
+                self.reset_image_state(false);
+                self.parse_label_file();
             }
-
-            // Clear current texture and reload
-            self.reset_image_state(false);
-            self.parse_label_file();
         }
     }
 
@@ -374,7 +403,7 @@ impl DatasetCleanerApp {
             }
 
             // Reload the dataset to refresh file list
-            self.reload_and_refresh(false);
+            self.reload_dataset_with_filters(false);
         }
     }
 
@@ -636,7 +665,7 @@ impl eframe::App for DatasetCleanerApp {
             self.batch.cancel_flag = None;
 
             // Reload dataset and refresh state (same for both cancelled and completed)
-            self.reload_and_refresh(false);
+            self.reload_dataset_with_filters(false);
         }
 
         // Poll for balance analysis updates
