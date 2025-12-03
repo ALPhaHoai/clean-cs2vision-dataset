@@ -1,3 +1,4 @@
 /target
 clean-cs2vision-dataset.exe
 logs/
+settings.json
