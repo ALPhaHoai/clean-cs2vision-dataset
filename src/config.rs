@@ -2,7 +2,7 @@ use eframe::egui::Color32;
 use std::path::PathBuf;
 
 /// Application configuration containing all hardcoded values
-/// 
+///
 /// This struct centralizes configuration values to make them easier to manage
 /// and provides a foundation for future configuration file support.
 #[derive(Clone)]
@@ -18,7 +18,9 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            default_dataset_path: PathBuf::from(r"E:\CS2Vison\cs2-data-dumper\dump"),
+            default_dataset_path: PathBuf::from(
+                r"D:\projects\RustProjects\clean-cs2vision-dataset\sample-dataset",
+            ),
             window_width: 1200.0,
             window_height: 800.0,
             class_names: vec!["T", "CT"],
@@ -54,6 +56,9 @@ impl AppConfig {
         self.class_colors
             .get(class_id as usize)
             .copied()
-            .unwrap_or((Color32::GRAY, Color32::from_rgba_unmultiplied(128, 128, 128, 30)))
+            .unwrap_or((
+                Color32::GRAY,
+                Color32::from_rgba_unmultiplied(128, 128, 128, 30),
+            ))
     }
 }

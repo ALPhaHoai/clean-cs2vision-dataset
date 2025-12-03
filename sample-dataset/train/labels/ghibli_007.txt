@@ -1,0 +1,2 @@
+# Resolution: 2560x1440, Map: ghibli_riverside, Time: 1733186311
+1 0.4923 0.5234 0.0823 0.1512

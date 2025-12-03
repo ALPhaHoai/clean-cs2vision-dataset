@@ -1,16 +1,17 @@
 use crate::DatasetCleanerApp;
 use eframe::egui;
 use super::image_renderer::ImageRenderer;
+use egui_phosphor::regular as Icon;
 
 /// Render the top panel with navigation and dataset controls
 pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.heading("🗂 YOLO Dataset Cleaner");
+            ui.heading(format!("{} YOLO Dataset Cleaner", Icon::FOLDERS));
             
             ui.add_space(20.0);
             
-            if ui.button("📁 Open Dataset Folder").clicked() {
+            if ui.button(format!("{} Open Dataset Folder", Icon::FOLDER_OPEN)).clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     app.load_dataset(path);
                 }
@@ -119,7 +120,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             let delete_enabled = !app.dataset.get_image_files().is_empty();
             let delete_btn = ui.add_enabled(
                 delete_enabled,
-                egui::Button::new("🗑 Delete Image & Label").fill(egui::Color32::from_rgb(200, 50, 50)),
+                egui::Button::new(format!("{} Delete Image & Label", Icon::TRASH)).fill(egui::Color32::from_rgb(200, 50, 50)),
             );
             
             if delete_btn.clicked() {
@@ -144,12 +145,12 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     } else {
                         0
                     };
-                    format!("🧹 Processing... {}%", percentage)
+                    format!("{} Processing... {}%", Icon::MAGIC_WAND, percentage)
                 } else {
-                    "🧹 Processing...".to_string()
+                    format!("{} Processing...", Icon::MAGIC_WAND)
                 }
             } else {
-                "🧹 Remove Black Images".to_string()
+                format!("{} Remove Black Images", Icon::MAGIC_WAND)
             };
             
             let button = egui::Button::new(&button_text).fill(egui::Color32::from_rgb(100, 100, 180));
@@ -175,7 +176,7 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             // Current file name
             if !app.dataset.get_image_files().is_empty() {
                 if let Some(filename) = app.dataset.get_image_files()[app.current_index].file_name() {
-                    ui.label(format!("📄 {}", filename.to_string_lossy()));
+                    ui.label(format!("{} {}", Icon::FILE, filename.to_string_lossy()));
                 }
             }
         });
@@ -196,7 +197,7 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             // Display dominant color
             if let Some(color) = app.dominant_color {
-                ui.label(egui::RichText::new("🎨 Dominant Color")
+                ui.label(egui::RichText::new(format!("{} Dominant Color", Icon::PALETTE))
                     .strong()
                     .size(16.0));
                 ui.add_space(5.0);
@@ -231,7 +232,7 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             if let Some(label) = &app.current_label {
                 // Detection count
-                ui.label(egui::RichText::new(format!("🎯 Detections: {}", label.detections.len()))
+                ui.label(egui::RichText::new(format!("{} Detections: {}", Icon::TARGET, label.detections.len()))
                     .strong()
                     .size(16.0));
                 
@@ -239,13 +240,13 @@ pub fn render_label_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 
                 // Metadata
                 if let Some(res) = &label.resolution {
-                    ui.label(format!("📐 Resolution: {}", res));
+                    ui.label(format!("{} Resolution: {}", Icon::RULER, res));
                 }
                 if let Some(map) = &label.map {
-                    ui.label(format!("🗺 Map: {}", map));
+                    ui.label(format!("{} Map: {}", Icon::MAP_TRIFOLD, map));
                 }
                 if let Some(time) = &label.timestamp {
-                    ui.label(format!("⏰ Timestamp: {}", time));
+                    ui.label(format!("{} Timestamp: {}", Icon::CLOCK, time));
                 }
                 
                 ui.add_space(10.0);

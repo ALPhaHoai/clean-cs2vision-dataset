@@ -108,7 +108,13 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "YOLO Dataset Cleaner",
         options,
-        Box::new(|_cc| Ok(Box::new(DatasetCleanerApp::default()))),
+        Box::new(|cc| {
+            // Initialize egui-phosphor
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(DatasetCleanerApp::default()))
+        }),
     )
 }
 

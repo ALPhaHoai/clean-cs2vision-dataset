@@ -1,0 +1,2 @@
+# Resolution: 2560x1440, Map: ghibli_forest, Time: 1733186219
+0 0.4823 0.5612 0.0912 0.1689
