@@ -4,6 +4,102 @@ use eframe::egui;
 use super::image_renderer::ImageRenderer;
 use egui_phosphor::regular as Icon;
 
+// Navigation overlay constants
+const NAVIGATION_OVERLAY_WIDTH: f32 = 60.0;
+const NAVIGATION_ARROW_SIZE: f32 = 20.0;
+const OVERLAY_HOVER_ALPHA: u8 = 50;
+const OVERLAY_SHADOW_ALPHA: u8 = 100;
+
+/// Direction for navigation arrows
+enum ArrowDirection {
+    Left,
+    Right,
+}
+
+/// Draw a navigation arrow with optional shadow
+fn draw_navigation_arrow(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    direction: ArrowDirection,
+    is_hovered: bool,
+) {
+    let arrow_color = if is_hovered {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_white_alpha(128)
+    };
+    
+    let points = match direction {
+        ArrowDirection::Left => vec![
+            center + egui::vec2(NAVIGATION_ARROW_SIZE / 2.0, -NAVIGATION_ARROW_SIZE),
+            center + egui::vec2(-NAVIGATION_ARROW_SIZE / 2.0, 0.0),
+            center + egui::vec2(NAVIGATION_ARROW_SIZE / 2.0, NAVIGATION_ARROW_SIZE),
+        ],
+        ArrowDirection::Right => vec![
+            center + egui::vec2(-NAVIGATION_ARROW_SIZE / 2.0, -NAVIGATION_ARROW_SIZE),
+            center + egui::vec2(NAVIGATION_ARROW_SIZE / 2.0, 0.0),
+            center + egui::vec2(-NAVIGATION_ARROW_SIZE / 2.0, NAVIGATION_ARROW_SIZE),
+        ],
+    };
+    
+    // Add a small shadow/outline for better visibility against light images
+    if !is_hovered {
+        let shadow_offset = egui::vec2(1.0, 1.0);
+        let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+        painter.add(egui::Shape::convex_polygon(
+            shadow_points,
+            egui::Color32::from_black_alpha(OVERLAY_SHADOW_ALPHA),
+            egui::Stroke::NONE
+        ));
+    }
+
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        arrow_color,
+        egui::Stroke::NONE
+    ));
+}
+
+/// Handle manual index input when user presses Enter
+/// Returns true if the input was processed successfully
+fn handle_manual_index_input(
+    app: &mut DatasetCleanerApp,
+    new_index_str: &str,
+    current_display: &str,
+) -> bool {
+    if let Ok(new_index) = new_index_str.trim().parse::<usize>() {
+        if app.filter.is_active() {
+            // Navigate using virtual (filtered) index
+            if new_index > 0 && new_index <= app.filter.filtered_count() {
+                if let Some(actual_idx) = app.filter.get_actual_index(new_index - 1) {
+                    app.current_index = actual_idx;
+                    app.image.texture = None;
+                    app.image.label = None;
+                    app.image.dominant_color = None;
+                    app.parse_label_file();
+                    app.ui.manual_index_input = new_index.to_string();
+                    return true;
+                }
+            }
+        } else {
+            // Navigate using absolute index
+            if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
+                app.current_index = new_index - 1;
+                app.image.texture = None;
+                app.image.label = None;
+                app.image.dominant_color = None;
+                app.parse_label_file();
+                app.ui.manual_index_input = new_index.to_string();
+                return true;
+            }
+        }
+    }
+    
+    // Reset to current valid value if invalid input or out of range
+    app.ui.manual_index_input = current_display.to_string();
+    false
+}
+
 /// Render the top panel with navigation and dataset controls
 pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -80,40 +176,7 @@ pub fn render_top_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     
                     // Handle manual input when user presses Enter FIRST before syncing
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(new_index) = app.ui.manual_index_input.trim().parse::<usize>() {
-                            if app.filter.is_active() {
-                                // Navigate using virtual (filtered) index
-                                if new_index > 0 && new_index <= app.filter.filtered_count() {
-                                    if let Some(actual_idx) = app.filter.get_actual_index(new_index - 1) {
-                                        app.current_index = actual_idx;
-                                        app.image.texture = None;
-                                        app.image.label = None;
-                                        app.image.dominant_color = None;
-                                        app.parse_label_file();
-                                        app.ui.manual_index_input = new_index.to_string();
-                                    }
-                                } else {
-                                    // Reset to current valid value if out of range
-                                    app.ui.manual_index_input = current_display.clone();
-                                }
-                            } else {
-                                // Navigate using absolute index
-                                if new_index > 0 && new_index <= app.dataset.get_image_files().len() {
-                                    app.current_index = new_index - 1;
-                                    app.image.texture = None;
-                                    app.image.label = None;
-                                    app.image.dominant_color = None;
-                                    app.parse_label_file();
-                                    app.ui.manual_index_input = new_index.to_string();
-                                } else {
-                                    // Reset to current valid value if out of range
-                                    app.ui.manual_index_input = current_display.clone();
-                                }
-                            }
-                        } else {
-                            // Reset to current valid value if invalid input
-                            app.ui.manual_index_input = current_display.clone();
-                        }
+                        handle_manual_index_input(app, &app.ui.manual_index_input.clone(), &current_display);
                     } 
                     // Sync the input text with current index when not focused and not pressing Enter
                     else if !response.has_focus() && app.ui.manual_index_input != current_display {
@@ -568,13 +631,11 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
 
                 // --- Navigation Overlays (hidden in fullscreen mode) ---
                 if !app.ui.fullscreen_mode {
-                    let overlay_width = 60.0; // Width of the clickable area
-                    
                     // Previous Button (Left)
                     if app.current_index > 0 {
                         let prev_rect = egui::Rect::from_min_size(
                             image_rect.min,
-                            egui::vec2(overlay_width, image_rect.height())
+                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, image_rect.height())
                         );
                         
                         let response = ui.allocate_rect(prev_rect, egui::Sense::click());
@@ -585,41 +646,17 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                             ui.painter().rect_filled(
                                 prev_rect,
                                 0.0,
-                                egui::Color32::from_black_alpha(50)
+                                egui::Color32::from_black_alpha(OVERLAY_HOVER_ALPHA)
                             );
                         }
                         
                         // Draw arrow icon (always visible, brighter on hover)
-                        let center = prev_rect.center();
-                        let arrow_size = 20.0;
-                        let arrow_color = if is_hovered {
-                            egui::Color32::WHITE
-                        } else {
-                            egui::Color32::from_white_alpha(128)
-                        };
-                        
-                        let points = vec![
-                            center + egui::vec2(arrow_size / 2.0, -arrow_size),
-                            center + egui::vec2(-arrow_size / 2.0, 0.0),
-                            center + egui::vec2(arrow_size / 2.0, arrow_size),
-                        ];
-                        
-                        // Add a small shadow/outline for better visibility against light images
-                        if !is_hovered {
-                            let shadow_offset = egui::vec2(1.0, 1.0);
-                            let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
-                            ui.painter().add(egui::Shape::convex_polygon(
-                                shadow_points,
-                                egui::Color32::from_black_alpha(100),
-                                egui::Stroke::NONE
-                            ));
-                        }
-
-                        ui.painter().add(egui::Shape::convex_polygon(
-                            points,
-                            arrow_color,
-                            egui::Stroke::NONE
-                        ));
+                        draw_navigation_arrow(
+                            ui.painter(),
+                            prev_rect.center(),
+                            ArrowDirection::Left,
+                            is_hovered
+                        );
                         
                         if response.clicked() {
                             app.prev_image();
@@ -629,8 +666,8 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                     // Next Button (Right)
                     if !app.dataset.get_image_files().is_empty() && app.current_index < app.dataset.get_image_files().len() - 1 {
                         let next_rect = egui::Rect::from_min_size(
-                            egui::pos2(image_rect.max.x - overlay_width, image_rect.min.y),
-                            egui::vec2(overlay_width, image_rect.height())
+                            egui::pos2(image_rect.max.x - NAVIGATION_OVERLAY_WIDTH, image_rect.min.y),
+                            egui::vec2(NAVIGATION_OVERLAY_WIDTH, image_rect.height())
                         );
                         
                         let response = ui.allocate_rect(next_rect, egui::Sense::click());
@@ -641,41 +678,17 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                             ui.painter().rect_filled(
                                 next_rect,
                                 0.0,
-                                egui::Color32::from_black_alpha(50)
+                                egui::Color32::from_black_alpha(OVERLAY_HOVER_ALPHA)
                             );
                         }
                         
                         // Draw arrow icon (always visible, brighter on hover)
-                        let center = next_rect.center();
-                        let arrow_size = 20.0;
-                        let arrow_color = if is_hovered {
-                            egui::Color32::WHITE
-                        } else {
-                            egui::Color32::from_white_alpha(128)
-                        };
-                        
-                        let points = vec![
-                            center + egui::vec2(-arrow_size / 2.0, -arrow_size),
-                            center + egui::vec2(arrow_size / 2.0, 0.0),
-                            center + egui::vec2(-arrow_size / 2.0, arrow_size),
-                        ];
-
-                        // Add a small shadow/outline for better visibility against light images
-                        if !is_hovered {
-                            let shadow_offset = egui::vec2(1.0, 1.0);
-                            let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
-                            ui.painter().add(egui::Shape::convex_polygon(
-                                shadow_points,
-                                egui::Color32::from_black_alpha(100),
-                                egui::Stroke::NONE
-                            ));
-                        }
-
-                        ui.painter().add(egui::Shape::convex_polygon(
-                            points,
-                            arrow_color,
-                            egui::Stroke::NONE
-                        ));
+                        draw_navigation_arrow(
+                            ui.painter(),
+                            next_rect.center(),
+                            ArrowDirection::Right,
+                            is_hovered
+                        );
                         
                         if response.clicked() {
                             app.next_image();
