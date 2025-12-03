@@ -46,6 +46,12 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **File Logging**: All logs saved to timestamped files in the `logs/` directory
 - **Selective Filtering**: Reduced noise from third-party libraries (egui, eframe, winit)
 
+### 💾 Persistent Settings
+- **Auto-Save Preferences**: Automatically remembers your last opened dataset, active split, and image position
+- **Window Size Memory**: Restores window dimensions between sessions
+- **Portable Settings**: Settings file stored next to the executable for easy backup and portability
+- **Seamless Experience**: Pick up right where you left off when reopening the application
+
 ## Installation
 
 ### Prerequisites
@@ -184,6 +190,8 @@ This project uses the following Rust crates:
 - **[tracing](https://crates.io/crates/tracing)** (v0.1): Structured logging
 - **[tracing-subscriber](https://crates.io/crates/tracing-subscriber)** (v0.3): Logging implementation with env-filter support
 - **[chrono](https://crates.io/crates/chrono)** (v0.4): Date and time handling for log timestamps
+- **[serde](https://crates.io/crates/serde)** (v1.0): Serialization framework for settings persistence
+- **[serde_json](https://crates.io/crates/serde_json)** (v1.0): JSON serialization for settings files
 
 ## Development
 
@@ -198,6 +206,7 @@ clean-cs2vision-dataset/
 │   ├── label_parser.rs      # YOLO label file parsing
 │   ├── image_analysis.rs    # Image color analysis and black detection
 │   ├── log_formatter.rs     # Custom bracketed log formatter
+│   ├── settings.rs          # Persistent user settings management
 │   └── ui/                  # User interface modules
 │       ├── mod.rs           # UI module exports
 │       ├── panels.rs        # UI panels (top, bottom, label, central)
@@ -225,6 +234,7 @@ The application follows a modular architecture:
 - **`label_parser.rs`**: Parses YOLO label files and extracts metadata
 - **`image_analysis.rs`**: Provides image color analysis using k-means clustering in LAB color space. Includes functions to calculate dominant colors and detect black/near-black images
 - **`log_formatter.rs`**: Custom log formatter that wraps log fields in brackets for improved readability (timestamp, level, function, location)
+- **`settings.rs`**: Manages persistent user preferences (dataset path, window size, split, image index). Settings are saved as JSON next to the executable for portability
 - **`ui/`**: Contains all UI-related code, separated by functionality:
   - `panels.rs`: Renders all UI panels (navigation, labels, image display) using Phosphor icons
   - `keyboard.rs`: Handles keyboard input and shortcuts (navigation, delete, undo)
@@ -275,6 +285,8 @@ pub struct AppConfig {
 - **Class 1 (CT)**: Blue border (RGB: 100, 149, 237)
 
 To customize these values, edit `src/config.rs` in the `Default` implementation. You can also select a different dataset location at runtime using the "📁 Open Dataset Folder" button.
+
+**Note**: User preferences (last dataset opened, window size, active split, current image index) are automatically saved in a `settings.json` file next to the executable and restored on next launch.
 
 ### Logging Configuration
 

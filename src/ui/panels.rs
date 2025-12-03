@@ -326,129 +326,167 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
                 // Draw the image
                 ui.put(image_rect, egui::Image::new((texture.id(), scaled_size)));
                 
-                // Draw bounding boxes if label data exists
-                if let Some(label) = &app.current_label {
-                    ImageRenderer::draw_bounding_boxes(
-                        ui.painter(),
-                        label,
-                        image_rect,
-                        scaled_size,
-                        &app.config
-                    );
-                }
-
-                // --- Navigation Overlays ---
-                let overlay_width = 60.0; // Width of the clickable area
-                
-                // Previous Button (Left)
-                if app.current_index > 0 {
-                    let prev_rect = egui::Rect::from_min_size(
-                        image_rect.min,
-                        egui::vec2(overlay_width, image_rect.height())
-                    );
-                    
-                    let response = ui.allocate_rect(prev_rect, egui::Sense::click());
-                    let is_hovered = response.hovered();
-                    
-                    // Draw background (only on hover)
-                    if is_hovered {
-                        ui.painter().rect_filled(
-                            prev_rect,
-                            0.0,
-                            egui::Color32::from_black_alpha(50)
+                // Draw bounding boxes if label data exists (not in fullscreen mode)
+                if !app.fullscreen_mode {
+                    if let Some(label) = &app.current_label {
+                        ImageRenderer::draw_bounding_boxes(
+                            ui.painter(),
+                            label,
+                            image_rect,
+                            scaled_size,
+                            &app.config
                         );
-                    }
-                    
-                    // Draw arrow icon (always visible, brighter on hover)
-                    let center = prev_rect.center();
-                    let arrow_size = 20.0;
-                    let arrow_color = if is_hovered {
-                        egui::Color32::WHITE
-                    } else {
-                        egui::Color32::from_white_alpha(128)
-                    };
-                    
-                    let points = vec![
-                        center + egui::vec2(arrow_size / 2.0, -arrow_size),
-                        center + egui::vec2(-arrow_size / 2.0, 0.0),
-                        center + egui::vec2(arrow_size / 2.0, arrow_size),
-                    ];
-                    
-                    // Add a small shadow/outline for better visibility against light images
-                    if !is_hovered {
-                        let shadow_offset = egui::vec2(1.0, 1.0);
-                        let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
-                        ui.painter().add(egui::Shape::convex_polygon(
-                            shadow_points,
-                            egui::Color32::from_black_alpha(100),
-                            egui::Stroke::NONE
-                        ));
-                    }
-
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        points,
-                        arrow_color,
-                        egui::Stroke::NONE
-                    ));
-                    
-                    if response.clicked() {
-                        app.prev_image();
                     }
                 }
 
-                // Next Button (Right)
-                if !app.dataset.get_image_files().is_empty() && app.current_index < app.dataset.get_image_files().len() - 1 {
-                    let next_rect = egui::Rect::from_min_size(
-                        egui::pos2(image_rect.max.x - overlay_width, image_rect.min.y),
-                        egui::vec2(overlay_width, image_rect.height())
+                // Show fullscreen hint overlay
+                if app.fullscreen_mode {
+                    // Top-center overlay with hint
+                    let hint_text = "Press Space to exit fullscreen";
+                    let font_id = egui::FontId::proportional(16.0);
+                    let galley = ui.painter().layout_no_wrap(
+                        hint_text.to_string(),
+                        font_id.clone(),
+                        egui::Color32::WHITE
                     );
                     
-                    let response = ui.allocate_rect(next_rect, egui::Sense::click());
-                    let is_hovered = response.hovered();
+                    let hint_pos = egui::pos2(
+                        available_rect.center().x - galley.size().x / 2.0,
+                        available_rect.min.y + 20.0
+                    );
                     
-                    // Draw background (only on hover)
-                    if is_hovered {
-                        ui.painter().rect_filled(
-                            next_rect,
-                            0.0,
-                            egui::Color32::from_black_alpha(50)
-                        );
-                    }
+                    let hint_bg_rect = egui::Rect::from_min_size(
+                        hint_pos - egui::vec2(10.0, 5.0),
+                        galley.size() + egui::vec2(20.0, 10.0)
+                    );
                     
-                    // Draw arrow icon (always visible, brighter on hover)
-                    let center = next_rect.center();
-                    let arrow_size = 20.0;
-                    let arrow_color = if is_hovered {
+                    ui.painter().rect_filled(
+                        hint_bg_rect,
+                        4.0,
+                        egui::Color32::from_black_alpha(180)
+                    );
+                    
+                    ui.painter().galley(
+                        hint_pos,
+                        galley,
                         egui::Color32::WHITE
-                    } else {
-                        egui::Color32::from_white_alpha(128)
-                    };
-                    
-                    let points = vec![
-                        center + egui::vec2(-arrow_size / 2.0, -arrow_size),
-                        center + egui::vec2(arrow_size / 2.0, 0.0),
-                        center + egui::vec2(-arrow_size / 2.0, arrow_size),
-                    ];
+                    );
+                }
 
-                    // Add a small shadow/outline for better visibility against light images
-                    if !is_hovered {
-                        let shadow_offset = egui::vec2(1.0, 1.0);
-                        let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+                // --- Navigation Overlays (hidden in fullscreen mode) ---
+                if !app.fullscreen_mode {
+                    let overlay_width = 60.0; // Width of the clickable area
+                    
+                    // Previous Button (Left)
+                    if app.current_index > 0 {
+                        let prev_rect = egui::Rect::from_min_size(
+                            image_rect.min,
+                            egui::vec2(overlay_width, image_rect.height())
+                        );
+                        
+                        let response = ui.allocate_rect(prev_rect, egui::Sense::click());
+                        let is_hovered = response.hovered();
+                        
+                        // Draw background (only on hover)
+                        if is_hovered {
+                            ui.painter().rect_filled(
+                                prev_rect,
+                                0.0,
+                                egui::Color32::from_black_alpha(50)
+                            );
+                        }
+                        
+                        // Draw arrow icon (always visible, brighter on hover)
+                        let center = prev_rect.center();
+                        let arrow_size = 20.0;
+                        let arrow_color = if is_hovered {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_white_alpha(128)
+                        };
+                        
+                        let points = vec![
+                            center + egui::vec2(arrow_size / 2.0, -arrow_size),
+                            center + egui::vec2(-arrow_size / 2.0, 0.0),
+                            center + egui::vec2(arrow_size / 2.0, arrow_size),
+                        ];
+                        
+                        // Add a small shadow/outline for better visibility against light images
+                        if !is_hovered {
+                            let shadow_offset = egui::vec2(1.0, 1.0);
+                            let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+                            ui.painter().add(egui::Shape::convex_polygon(
+                                shadow_points,
+                                egui::Color32::from_black_alpha(100),
+                                egui::Stroke::NONE
+                            ));
+                        }
+
                         ui.painter().add(egui::Shape::convex_polygon(
-                            shadow_points,
-                            egui::Color32::from_black_alpha(100),
+                            points,
+                            arrow_color,
                             egui::Stroke::NONE
                         ));
+                        
+                        if response.clicked() {
+                            app.prev_image();
+                        }
                     }
 
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        points,
-                        arrow_color,
-                        egui::Stroke::NONE
-                    ));
-                    
-                    if response.clicked() {
-                        app.next_image();
+                    // Next Button (Right)
+                    if !app.dataset.get_image_files().is_empty() && app.current_index < app.dataset.get_image_files().len() - 1 {
+                        let next_rect = egui::Rect::from_min_size(
+                            egui::pos2(image_rect.max.x - overlay_width, image_rect.min.y),
+                            egui::vec2(overlay_width, image_rect.height())
+                        );
+                        
+                        let response = ui.allocate_rect(next_rect, egui::Sense::click());
+                        let is_hovered = response.hovered();
+                        
+                        // Draw background (only on hover)
+                        if is_hovered {
+                            ui.painter().rect_filled(
+                                next_rect,
+                                0.0,
+                                egui::Color32::from_black_alpha(50)
+                            );
+                        }
+                        
+                        // Draw arrow icon (always visible, brighter on hover)
+                        let center = next_rect.center();
+                        let arrow_size = 20.0;
+                        let arrow_color = if is_hovered {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_white_alpha(128)
+                        };
+                        
+                        let points = vec![
+                            center + egui::vec2(-arrow_size / 2.0, -arrow_size),
+                            center + egui::vec2(arrow_size / 2.0, 0.0),
+                            center + egui::vec2(-arrow_size / 2.0, arrow_size),
+                        ];
+
+                        // Add a small shadow/outline for better visibility against light images
+                        if !is_hovered {
+                            let shadow_offset = egui::vec2(1.0, 1.0);
+                            let shadow_points: Vec<egui::Pos2> = points.iter().map(|p| *p + shadow_offset).collect();
+                            ui.painter().add(egui::Shape::convex_polygon(
+                                shadow_points,
+                                egui::Color32::from_black_alpha(100),
+                                egui::Stroke::NONE
+                            ));
+                        }
+
+                        ui.painter().add(egui::Shape::convex_polygon(
+                            points,
+                            arrow_color,
+                            egui::Stroke::NONE
+                        ));
+                        
+                        if response.clicked() {
+                            app.next_image();
+                        }
                     }
                 }
 
@@ -481,5 +519,3 @@ pub fn render_central_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
         }
     });
 }
-
-

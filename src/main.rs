@@ -138,6 +138,8 @@ pub struct DatasetCleanerApp {
     pub manual_index_input: String,
     pub image_load_error: Option<String>,
     pub settings: Settings,
+    pub fullscreen_mode: bool,
+    pub show_filter_dialog: bool,
 }
 
 impl Default for DatasetCleanerApp {
@@ -194,6 +196,8 @@ impl Default for DatasetCleanerApp {
             manual_index_input: String::from("1"),
             image_load_error: None,
             settings,
+            fullscreen_mode: false,
+            show_filter_dialog: false,
         };
 
         // Parse label for the current image if dataset was loaded
@@ -564,6 +568,75 @@ impl DatasetCleanerApp {
         }
     }
 
+    pub fn jump_to_first(&mut self) {
+        if !self.dataset.get_image_files().is_empty() && self.current_index != 0 {
+            info!("Jumping to first image");
+            self.current_index = 0;
+            self.current_texture = None;
+            self.current_label = None;
+            self.dominant_color = None;
+            self.image_load_error = None;
+            self.parse_label_file();
+
+            // Save image index to settings
+            self.settings.last_image_index = self.current_index;
+            self.settings.save();
+        }
+    }
+
+    pub fn jump_to_last(&mut self) {
+        if !self.dataset.get_image_files().is_empty() {
+            let last_index = self.dataset.get_image_files().len() - 1;
+            if self.current_index != last_index {
+                info!("Jumping to last image");
+                self.current_index = last_index;
+                self.current_texture = None;
+                self.current_label = None;
+                self.dominant_color = None;
+                self.image_load_error = None;
+                self.parse_label_file();
+
+                // Save image index to settings
+                self.settings.last_image_index = self.current_index;
+                self.settings.save();
+            }
+        }
+    }
+
+    pub fn jump_by_offset(&mut self, offset: isize) {
+        if self.dataset.get_image_files().is_empty() {
+            return;
+        }
+
+        let total_images = self.dataset.get_image_files().len();
+        let new_index = if offset < 0 {
+            // Jump backward
+            self.current_index.saturating_sub((-offset) as usize)
+        } else {
+            // Jump forward
+            (self.current_index + offset as usize).min(total_images - 1)
+        };
+
+        if new_index != self.current_index {
+            info!("Jumping by {} to index {}", offset, new_index);
+            self.current_index = new_index;
+            self.current_texture = None;
+            self.current_label = None;
+            self.dominant_color = None;
+            self.image_load_error = None;
+            self.parse_label_file();
+
+            // Save image index to settings
+            self.settings.last_image_index = self.current_index;
+            self.settings.save();
+        }
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        self.fullscreen_mode = !self.fullscreen_mode;
+        info!("Fullscreen mode toggled: {}", self.fullscreen_mode);
+    }
+
     pub fn process_black_images(&mut self) {
         if self.dataset.get_image_files().is_empty() {
             warn!("No images to process for black image removal");
@@ -751,6 +824,7 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_batch_delete_confirmation(self, ctx);
         ui::render_batch_progress(self, ctx);
         ui::render_toast_notification(self, ctx);
+        ui::render_filter_dialog(self, ctx);
 
         ui::handle_keyboard_shortcuts(self, ctx);
     }
