@@ -13,6 +13,10 @@ pub struct AppConfig {
     pub class_names: Vec<&'static str>,
     pub class_colors: Vec<(Color32, Color32)>, // (border_color, fill_color)
     pub side_panel_width: f32,
+    // Dataset balancing target ratios
+    pub target_player_ratio: f32,     // 0.85 for 85%
+    pub target_background_ratio: f32, // 0.10 for 10%
+    pub target_hardcase_ratio: f32,   // 0.05 for 5%
 }
 
 impl Default for AppConfig {
@@ -37,6 +41,9 @@ impl Default for AppConfig {
                 ),
             ],
             side_panel_width: 300.0,
+            target_player_ratio: 0.85,     // 85%
+            target_background_ratio: 0.10, // 10%
+            target_hardcase_ratio: 0.05,   // 5%
         }
     }
 }

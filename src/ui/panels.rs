@@ -169,6 +169,25 @@ pub fn render_bottom_panel(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             
             ui.add_space(20.0);
 
+            // Balance analyzer button
+            let balance_btn_text = if app.balance.analyzing {
+                format!("{} Analyzing...", Icon::CHART_BAR)
+            } else {
+                format!("{} Analyze Balance", Icon::CHART_BAR)
+            };
+            
+            let balance_button = egui::Button::new(&balance_btn_text).fill(egui::Color32::from_rgb(100, 150, 100));
+            if ui.add_enabled(
+                !app.dataset.get_image_files().is_empty() && !app.balance.analyzing,
+                balance_button,
+            )
+            .clicked()
+            {
+                app.analyze_balance();
+            }
+            
+            ui.add_space(20.0);
+
             
             // Current file name
             if !app.dataset.get_image_files().is_empty() {

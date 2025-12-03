@@ -100,3 +100,25 @@ impl BatchState {
         }
     }
 }
+
+/// Balance analysis state for dataset balance statistics
+#[derive(Default)]
+pub struct BalanceAnalysisState {
+    /// Whether balance analysis is currently running
+    pub analyzing: bool,
+    /// Results from the last balance analysis
+    pub results: Option<crate::core::analysis::BalanceStats>,
+    /// Whether to show the balance dialog
+    pub show_dialog: bool,
+}
+
+impl BalanceAnalysisState {
+    /// Create a new BalanceAnalysisState with default values
+    pub fn new() -> Self {
+        Self {
+            analyzing: false,
+            results: None,
+            show_dialog: false,
+        }
+    }
+}

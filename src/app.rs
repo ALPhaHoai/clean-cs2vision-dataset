@@ -15,7 +15,8 @@ use crate::config::AppConfig;
 use crate::core;
 use crate::core::dataset::{parse_label_file, Dataset, DatasetSplit};
 use crate::state::{
-    BatchProgressMessage, BatchState, ImageState, Settings, UIState, UndoManager, UndoState,
+    BalanceAnalysisState, BatchProgressMessage, BatchState, ImageState, Settings, UIState,
+    UndoManager, UndoState,
 };
 use crate::ui;
 
@@ -38,6 +39,7 @@ pub struct DatasetCleanerApp {
     pub image: ImageState,
     pub ui: UIState,
     pub batch: BatchState,
+    pub balance: BalanceAnalysisState,
 }
 
 impl Default for DatasetCleanerApp {
@@ -87,6 +89,7 @@ impl Default for DatasetCleanerApp {
             image: ImageState::new(),
             ui: UIState::new(),
             batch: BatchState::new(),
+            balance: BalanceAnalysisState::new(),
         };
 
         // Parse label for the current image if dataset was loaded
@@ -524,6 +527,23 @@ impl DatasetCleanerApp {
             flag.store(true, Ordering::Relaxed);
         }
     }
+
+    pub fn analyze_balance(&mut self) {
+        if let Some(dataset_path) = self.dataset.dataset_path() {
+            info!("Starting balance analysis for current split");
+            self.balance.analyzing = true;
+            self.balance.show_dialog = true;
+
+            // Analyze the dataset
+            let stats = core::analysis::analyze_dataset(dataset_path, self.dataset.current_split());
+
+            self.balance.results = Some(stats);
+            self.balance.analyzing = false;
+            info!("Balance analysis complete");
+        } else {
+            warn!("No dataset loaded, cannot analyze balance");
+        }
+    }
 }
 
 impl eframe::App for DatasetCleanerApp {
@@ -603,6 +623,7 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_batch_progress(self, ctx);
         ui::render_toast_notification(self, ctx);
         ui::render_filter_dialog(self, ctx);
+        ui::render_balance_dialog(self, ctx);
 
         ui::handle_keyboard_shortcuts(self, ctx);
     }
