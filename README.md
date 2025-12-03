@@ -41,6 +41,20 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **Metadata Comments**: Supports metadata in label files (resolution, map, timestamp)
 - **Multiple Classes**: Handles multi-class datasets (T/CT for CS2 dataset)
 
+### 🔍 Image Filtering
+- **Team Filters**: Filter images by team presence (All, T Only, CT Only, Both, T Exclusive, CT Exclusive)
+- **Player Count Filters**: Filter by player count (Any, Single, Multiple 2+, Background/No Players)
+- **Real-time Preview**: See filtered image count before applying
+- **Filter Dialog**: Dedicated UI for configuring filters (Ctrl+F)
+- **Filtered Navigation**: Navigate through filtered results seamlessly
+
+### 📊 Dataset Balance Analyzer
+- **Distribution Analysis**: Analyze dataset by player types (CT Only, T Only, Multiple Players, Background, Hard Cases)
+- **Progress Tracking**: Real-time progress display with cancel support during analysis
+- **Target Ratios**: Compare current distribution against target ratios (85% players, 10% background, 5% hard cases)
+- **Smart Recommendations**: Get actionable suggestions for balancing your dataset
+- **Detailed Breakdown**: View percentages and counts for each category
+
 ### 📝 Logging & Debugging
 - **Structured Logging**: Comprehensive logging system using `tracing` and `tracing-subscriber`
 - **Custom Log Format**: Bracketed formatter with timestamps, log levels, function names, and source locations
@@ -106,7 +120,25 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
    - Toast notification shows undo/redo availability and counts
    - Press **Ctrl+Z** to undo or **Ctrl+Y** to redo (unlimited history)
 
-6. **Batch Remove Black Images**
+6. **Filter Images** (Optional)
+   - Press **Ctrl+F** or click the filter button to open the filter dialog
+   - Select team filter: All Teams, T Only, CT Only, Both T & CT, T Exclusive, or CT Exclusive
+   - Select player count filter: Any, Single, Multiple (2+), or Background (No Players)
+   - Click **Apply Filters** to see only images matching your criteria
+   - Navigate through filtered results using arrow keys or buttons
+   - Click **Clear All** to remove filters and see all images again
+
+7. **Analyze Dataset Balance**
+   - Click **📊 Analyze Balance** button to analyze your dataset distribution
+   - Monitor progress as the tool scans all images and categorizes them
+   - Review the analysis results showing:
+     - Player images breakdown (CT Only, T Only, Multiple Players)
+     - Background images count
+     - Hard cases (both teams, no player, or ambiguous)
+   - Compare current distribution against target ratios
+   - Follow recommendations to improve dataset balance
+
+8. **Batch Remove Black Images**
    - Click **🧹 Remove Black Images** button to detect and remove images with black/near-black content
    - Review the confirmation dialog showing split and total image count
    - Confirm to start the batch processing
@@ -219,6 +251,7 @@ This project uses the following Rust crates:
 - **[chrono](https://crates.io/crates/chrono)** (v0.4): Date and time handling for log timestamps
 - **[serde](https://crates.io/crates/serde)** (v1.0): Serialization framework for settings persistence
 - **[serde_json](https://crates.io/crates/serde_json)** (v1.0): JSON serialization for settings files
+- **[directories](https://crates.io/crates/directories)** (v5.0): Standard directory paths across platforms
 
 ## Development
 
@@ -227,27 +260,53 @@ This project uses the following Rust crates:
 ```
 clean-cs2vision-dataset/
 ├── src/
-│   ├── main.rs              # Application entry point and core logic
-│   ├── config.rs            # Centralized configuration management
-│   ├── dataset.rs           # Dataset loading and management
-│   ├── label_parser.rs      # YOLO label file parsing
-│   ├── image_analysis.rs    # Image color analysis and black detection
-│   ├── log_formatter.rs     # Custom bracketed log formatter
-│   ├── settings.rs          # Persistent user settings management
-│   ├── undo_manager.rs      # Undo/redo stack management
-│   └── ui/                  # User interface modules
-│       ├── mod.rs           # UI module exports
-│       ├── panels.rs        # UI panels (top, bottom, label, central)
-│       ├── keyboard.rs      # Keyboard shortcut handling
-│       ├── batch_dialogs.rs # Batch operation dialogs and progress
-│       ├── image_renderer.rs # Image rendering with bounding boxes
-│       ├── filter_dialog.rs # Filter dialog (placeholder)
-│       └── toast.rs         # Toast notification system with undo/redo UI
+│   ├── main.rs              # Application entry point (slim)
+│   ├── app.rs               # Main application logic and DatasetCleanerApp
+│   ├── core/                # Core business logic
+│   │   ├── mod.rs
+│   │   ├── filter.rs        # Image filtering by team and player count
+│   │   ├── analysis/        # Dataset analysis
+│   │   │   ├── mod.rs
+│   │   │   └── balance_analyzer.rs  # Balance analysis and recommendations
+│   │   ├── dataset/         # Dataset management
+│   │   │   ├── mod.rs
+│   │   │   ├── dataset.rs   # Dataset loading and split management
+│   │   │   └── label.rs     # YOLO label file parsing
+│   │   ├── image/           # Image processing
+│   │   │   ├── mod.rs
+│   │   │   └── analysis.rs  # Image color analysis and black detection
+│   │   └── operations/      # File operations
+│   │       ├── mod.rs
+│   │       └── file_ops.rs  # Delete, move, and file path utilities
+│   ├── state/               # State management
+│   │   ├── mod.rs
+│   │   ├── app_state.rs     # ImageState, UIState, BatchState, FilterState, etc.
+│   │   ├── settings.rs      # Persistent user settings
+│   │   └── undo_manager.rs  # Undo/redo stack management
+│   ├── ui/                  # User interface components
+│   │   ├── mod.rs
+│   │   ├── panels.rs        # UI panels (top, bottom, label, central)
+│   │   ├── keyboard.rs      # Keyboard shortcut handling
+│   │   ├── batch_dialogs.rs # Batch operation dialogs and progress
+│   │   ├── balance_dialog.rs # Balance analysis dialog
+│   │   ├── filter_dialog.rs # Filter configuration dialog
+│   │   ├── image_renderer.rs # Image rendering with bounding boxes
+│   │   └── toast.rs         # Toast notification system
+│   ├── infrastructure/      # Infrastructure concerns
+│   │   ├── mod.rs
+│   │   └── logging/         # Logging configuration and formatters
+│   │       ├── mod.rs
+│   │       ├── formatter.rs # Custom bracketed log formatter
+│   │       └── setup.rs     # Logger initialization
+│   └── config/              # Configuration management
+│       ├── mod.rs
+│       └── app_config.rs    # Centralized configuration
 ├── sample-dataset/          # Sample dataset for testing
 │   ├── train/               # Training split with Ghibli-style images
 │   ├── val/                 # Validation split
 │   └── test/                # Test split
 ├── logs/                    # Timestamped log files
+├── settings.json            # User settings (auto-generated)
 ├── Cargo.toml               # Project dependencies
 ├── Cargo.lock               # Locked dependency versions
 ├── build_release.bat        # Windows build script
@@ -256,22 +315,42 @@ clean-cs2vision-dataset/
 
 ### Architecture
 
-The application follows a modular architecture:
+The application follows a clean, modular architecture with separation of concerns:
 
-- **`config.rs`**: Centralizes all configuration values (colors, paths, window sizes) in a single location
-- **`dataset.rs`**: Handles dataset loading, split management, and file operations
-- **`label_parser.rs`**: Parses YOLO label files and extracts metadata
-- **`image_analysis.rs`**: Provides image color analysis using k-means clustering in LAB color space. Includes functions to calculate dominant colors and detect black/near-black images
-- **`log_formatter.rs`**: Custom log formatter that wraps log fields in brackets for improved readability (timestamp, level, function, location)
-- **`settings.rs`**: Manages persistent user preferences (dataset path, window size, split, image index). Settings are saved as JSON next to the executable for portability
-- **`undo_manager.rs`**: Stack-based undo/redo management supporting unlimited history with standard behavior (new actions clear redo stack)
-- **`ui/`**: Contains all UI-related code, separated by functionality:
-  - `panels.rs`: Renders all UI panels (navigation, labels, image display) using Phosphor icons
-  - `keyboard.rs`: Handles keyboard input and shortcuts (navigation, delete, undo, redo)
-  - `batch_dialogs.rs`: Manages batch operation dialogs (confirmation, progress, results)
-  - `image_renderer.rs`: Renders images with overlaid bounding boxes
-  - `filter_dialog.rs`: Filter dialog (placeholder for future filtering features)
-  - `toast.rs`: Toast notification system showing undo/redo availability and counts
+#### Core Modules (`src/core/`)
+Business logic and domain operations:
+- **`filter.rs`**: Image filtering logic with team and player count criteria
+- **`analysis/balance_analyzer.rs`**: Dataset balance analysis, categorization, and recommendations
+- **`dataset/dataset.rs`**: Dataset loading, split management, and image listing
+- **`dataset/label.rs`**: YOLO label file parsing and metadata extraction
+- **`image/analysis.rs`**: Image color analysis using k-means clustering in LAB color space
+- **`operations/file_ops.rs`**: File operations (delete, move, path utilities)
+
+#### State Management (`src/state/`)
+Centralized state structs for application data:
+- **`app_state.rs`**: Core state structs (ImageState, UIState, BatchState, BalanceAnalysisState, FilterState)
+- **`settings.rs`**: Persistent user preferences (dataset path, window size, split, image index)
+- **`undo_manager.rs`**: Stack-based undo/redo management with unlimited history
+
+#### User Interface (`src/ui/`)
+UI components and rendering:
+- **`panels.rs`**: Main UI panels (navigation, labels, image display) using Phosphor icons
+- **`keyboard.rs`**: Keyboard input handling and shortcuts
+- **`batch_dialogs.rs`**: Batch operation dialogs (confirmation, progress, results)
+- **`balance_dialog.rs`**: Balance analysis results dialog with recommendations
+- **`filter_dialog.rs`**: Filter configuration dialog with team and player count options
+- **`image_renderer.rs`**: Image rendering with overlaid bounding boxes
+- **`toast.rs`**: Toast notification system for undo/redo feedback
+
+#### Infrastructure (`src/infrastructure/`)
+- **`logging/`**: Structured logging with custom bracketed formatter and file output
+
+#### Configuration (`src/config/`)
+- **`app_config.rs`**: Centralized configuration (colors, paths, window sizes, target ratios)
+
+#### Application Entry (`src/`)
+- **`main.rs`**: Slim entry point handling app initialization
+- **`app.rs`**: Main `DatasetCleanerApp` struct with eframe::App implementation
 
 ### Building for Development
 
