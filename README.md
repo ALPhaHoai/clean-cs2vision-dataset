@@ -42,11 +42,13 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **Multiple Classes**: Handles multi-class datasets (T/CT for CS2 dataset)
 
 ### 🔍 Image Filtering
+- **Filter Button**: Visible button in top panel for easy access to filtering
 - **Team Filters**: Filter images by team presence (All, T Only, CT Only, Both, T Exclusive, CT Exclusive)
 - **Player Count Filters**: Filter by player count (Any, Single, Multiple 2+, Background/No Players)
-- **Real-time Preview**: See filtered image count before applying
-- **Filter Dialog**: Dedicated UI for configuring filters (Ctrl+F)
-- **Filtered Navigation**: Navigate through filtered results seamlessly
+- **Real-time Preview**: See live count of matching images as you configure filters
+- **Visual Feedback**: Blue "Filtered" badge, position updates, and filtered count display
+- **No Results Screen**: Clear message when no images match, with options to modify or clear filters
+- **Filtered Navigation**: Navigate through filtered results seamlessly with correct position display
 
 ### 📊 Dataset Balance Analyzer
 - **Distribution Analysis**: Analyze dataset by player types (CT Only, T Only, Multiple Players, Background, Hard Cases)
@@ -121,12 +123,20 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
    - Press **Ctrl+Z** to undo or **Ctrl+Y** to redo (unlimited history)
 
 6. **Filter Images** (Optional)
-   - Press **Ctrl+F** or click the filter button to open the filter dialog
+   - Click the **Filter** button in the top panel (or press **Ctrl+F**) to open the filter dialog
    - Select team filter: All Teams, T Only, CT Only, Both T & CT, T Exclusive, or CT Exclusive
    - Select player count filter: Any, Single, Multiple (2+), or Background (No Players)
-   - Click **Apply Filters** to see only images matching your criteria
+   - **See live preview**: "X / Y images" updates in real-time as you select criteria
+   - Click **Apply Filters** to activate the filter
+   - **Visual feedback** when active:
+     - Position updates to show filtered position (e.g., "Image 1 of 5 (100 total)")
+     - Blue **"🔍 Filtered"** badge appears
+     - **"❌ Clear"** quick-clear button
    - Navigate through filtered results using arrow keys or buttons
-   - Click **Clear All** to remove filters and see all images again
+   - If **no images match**, you'll see a clear "No Matching Images" screen with:
+     - List of active filter criteria
+     - **Clear Filters** or **Modify Filters** buttons
+   - Click **Clear** in top panel or **Clear All** in dialog to remove filters
 
 7. **Analyze Dataset Balance**
    - Click **📊 Analyze Balance** button to analyze your dataset distribution
