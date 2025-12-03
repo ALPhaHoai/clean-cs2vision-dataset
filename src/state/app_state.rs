@@ -110,6 +110,15 @@ pub struct BalanceAnalysisState {
     pub results: Option<crate::core::analysis::BalanceStats>,
     /// Whether to show the balance dialog
     pub show_dialog: bool,
+    /// Current progress (images analyzed so far)
+    pub current_progress: usize,
+    /// Total images to analyze
+    pub total_images: usize,
+    /// Channel receiver for progress updates from background thread
+    pub(crate) progress_receiver:
+        Option<std::sync::mpsc::Receiver<crate::core::analysis::BalanceProgressMessage>>,
+    /// Flag to signal cancellation to background thread
+    pub(crate) cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl BalanceAnalysisState {
@@ -119,6 +128,10 @@ impl BalanceAnalysisState {
             analyzing: false,
             results: None,
             show_dialog: false,
+            current_progress: 0,
+            total_images: 0,
+            progress_receiver: None,
+            cancel_flag: None,
         }
     }
 }

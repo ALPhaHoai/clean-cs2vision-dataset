@@ -1,8 +1,25 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::Sender,
+    Arc,
+};
 use tracing::{info, warn};
 
 use crate::core::dataset::{parse_label_file, DatasetSplit};
+
+/// Progress message types for background analysis
+#[derive(Clone)]
+pub enum BalanceProgressMessage {
+    Progress {
+        current: usize,
+        total: usize,
+        stats: BalanceStats,
+    },
+    Complete(BalanceStats),
+    Cancelled(BalanceStats),
+}
 
 /// Categories for classifying images based on their detections
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,8 +164,13 @@ pub fn categorize_image(label_path: &PathBuf) -> ImageCategory {
     }
 }
 
-/// Analyze dataset balance for a given split
-pub fn analyze_dataset(dataset_path: &PathBuf, split: DatasetSplit) -> BalanceStats {
+/// Analyze dataset balance for a given split with optional progress reporting
+pub fn analyze_dataset_with_progress(
+    dataset_path: &PathBuf,
+    split: DatasetSplit,
+    progress_tx: Option<Sender<BalanceProgressMessage>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+) -> BalanceStats {
     let mut stats = BalanceStats::new();
 
     // Navigate to split/images folder
@@ -158,35 +180,71 @@ pub fn analyze_dataset(dataset_path: &PathBuf, split: DatasetSplit) -> BalanceSt
     info!("Analyzing balance for split: {:?}", split.as_str());
     info!("Images path: {:?}", images_path);
 
-    // Read all image files
+    // Collect all image paths first to know total count
+    let mut image_paths = Vec::new();
     if let Ok(entries) = fs::read_dir(&images_path) {
         for entry in entries.flatten() {
             let image_path = entry.path();
             if let Some(ext) = image_path.extension() {
                 let ext = ext.to_string_lossy().to_lowercase();
                 if ext == "png" || ext == "jpg" || ext == "jpeg" {
-                    stats.total_images += 1;
-
-                    // Get corresponding label file
-                    if let Some(stem) = image_path.file_stem() {
-                        let label_path =
-                            labels_path.join(format!("{}.txt", stem.to_string_lossy()));
-
-                        let category = categorize_image(&label_path);
-
-                        match category {
-                            ImageCategory::CTOnly => stats.ct_only += 1,
-                            ImageCategory::TOnly => stats.t_only += 1,
-                            ImageCategory::MultiplePlayer => stats.multiple_player += 1,
-                            ImageCategory::Background => stats.background += 1,
-                            ImageCategory::HardCase => stats.hard_case += 1,
-                        }
-                    }
+                    image_paths.push(image_path);
                 }
             }
         }
     } else {
         warn!("Failed to read directory: {:?}", images_path);
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(BalanceProgressMessage::Complete(stats.clone()));
+        }
+        return stats;
+    }
+
+    let total_images = image_paths.len();
+    stats.total_images = total_images;
+
+    // Process each image
+    for (idx, image_path) in image_paths.iter().enumerate() {
+        // Check for cancellation
+        if let Some(ref cancel) = cancel_flag {
+            if cancel.load(Ordering::Relaxed) {
+                warn!(
+                    "Balance analysis cancelled by user at image {}/{}",
+                    idx + 1,
+                    total_images
+                );
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(BalanceProgressMessage::Cancelled(stats.clone()));
+                }
+                return stats;
+            }
+        }
+
+        // Get corresponding label file
+        if let Some(stem) = image_path.file_stem() {
+            let label_path = labels_path.join(format!("{}.txt", stem.to_string_lossy()));
+
+            let category = categorize_image(&label_path);
+
+            match category {
+                ImageCategory::CTOnly => stats.ct_only += 1,
+                ImageCategory::TOnly => stats.t_only += 1,
+                ImageCategory::MultiplePlayer => stats.multiple_player += 1,
+                ImageCategory::Background => stats.background += 1,
+                ImageCategory::HardCase => stats.hard_case += 1,
+            }
+        }
+
+        // Send progress update every 10 images or on last image
+        if let Some(ref tx) = progress_tx {
+            if (idx + 1) % 10 == 0 || idx == total_images - 1 {
+                let _ = tx.send(BalanceProgressMessage::Progress {
+                    current: idx + 1,
+                    total: total_images,
+                    stats: stats.clone(),
+                });
+            }
+        }
     }
 
     info!(
@@ -197,7 +255,17 @@ pub fn analyze_dataset(dataset_path: &PathBuf, split: DatasetSplit) -> BalanceSt
         stats.hard_case
     );
 
+    // Send completion message
+    if let Some(tx) = progress_tx {
+        let _ = tx.send(BalanceProgressMessage::Complete(stats.clone()));
+    }
+
     stats
+}
+
+/// Analyze dataset balance for a given split (synchronous version)
+pub fn analyze_dataset(dataset_path: &PathBuf, split: DatasetSplit) -> BalanceStats {
+    analyze_dataset_with_progress(dataset_path, split, None, None)
 }
 
 /// Generate recommendations for manual balancing

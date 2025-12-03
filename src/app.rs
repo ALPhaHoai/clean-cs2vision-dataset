@@ -533,15 +533,41 @@ impl DatasetCleanerApp {
             info!("Starting balance analysis for current split");
             self.balance.analyzing = true;
             self.balance.show_dialog = true;
+            self.balance.current_progress = 0;
+            self.balance.total_images = 0;
 
-            // Analyze the dataset
-            let stats = core::analysis::analyze_dataset(dataset_path, self.dataset.current_split());
+            // Create a channel for progress updates
+            let (tx, rx) = channel();
+            self.balance.progress_receiver = Some(rx);
 
-            self.balance.results = Some(stats);
-            self.balance.analyzing = false;
-            info!("Balance analysis complete");
+            // Create cancellation flag
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.balance.cancel_flag = Some(cancel_flag.clone());
+
+            // Clone the data needed for the background thread
+            let dataset_path = dataset_path.clone();
+            let split = self.dataset.current_split();
+
+            // Spawn background thread to analyze
+            thread::spawn(move || {
+                info!("Background thread started for balance analysis");
+                let _stats = core::analysis::analyze_dataset_with_progress(
+                    &dataset_path,
+                    split,
+                    Some(tx),
+                    Some(cancel_flag),
+                );
+                info!("Background thread completed balance analysis");
+            });
         } else {
             warn!("No dataset loaded, cannot analyze balance");
+        }
+    }
+
+    pub fn cancel_balance_analysis(&mut self) {
+        info!("User requested balance analysis cancellation");
+        if let Some(flag) = &self.balance.cancel_flag {
+            flag.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -608,6 +634,41 @@ impl eframe::App for DatasetCleanerApp {
 
                 // Parse the label for the current image
                 self.parse_label_file();
+            }
+        }
+
+        // Poll for balance analysis updates
+        let mut balance_messages = Vec::new();
+        if let Some(receiver) = &self.balance.progress_receiver {
+            while let Ok(message) = receiver.try_recv() {
+                balance_messages.push(message);
+            }
+        }
+
+        // Process balance messages outside of the borrow
+        for message in balance_messages {
+            match message {
+                core::analysis::BalanceProgressMessage::Progress {
+                    current,
+                    total,
+                    stats,
+                } => {
+                    self.balance.current_progress = current;
+                    self.balance.total_images = total;
+                    self.balance.results = Some(stats);
+                }
+                core::analysis::BalanceProgressMessage::Complete(stats) => {
+                    self.balance.results = Some(stats);
+                    self.balance.analyzing = false;
+                    self.balance.progress_receiver = None;
+                    self.balance.cancel_flag = None;
+                }
+                core::analysis::BalanceProgressMessage::Cancelled(stats) => {
+                    self.balance.results = Some(stats);
+                    self.balance.analyzing = false;
+                    self.balance.progress_receiver = None;
+                    self.balance.cancel_flag = None;
+                }
             }
         }
 

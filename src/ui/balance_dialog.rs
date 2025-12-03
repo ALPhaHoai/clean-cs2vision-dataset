@@ -17,9 +17,36 @@ pub fn render_balance_dialog(app: &mut DatasetCleanerApp, ctx: &egui::Context) {
             if app.balance.analyzing {
                 ui.heading("Analyzing dataset...");
                 ui.add_space(10.0);
-                ui.spinner();
+                
+                // Show progress bar if we have total count
+                if app.balance.total_images > 0 {
+                    let progress = app.balance.current_progress as f32 / app.balance.total_images as f32;
+                    ui.add(egui::ProgressBar::new(progress).text(format!(
+                        "Analyzed {} / {} images",
+                        app.balance.current_progress,
+                        app.balance.total_images
+                    )));
+                } else {
+                    ui.spinner();
+                }
+                
                 ui.add_space(10.0);
                 ui.label("Scanning images and categorizing by player type...");
+                
+                // Show partial results if available
+                if let Some(stats) = &app.balance.results {
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new("Current count:").size(12.0).italics());
+                    ui.label(format!("  • Player images: {}", stats.total_player_images()));
+                    ui.label(format!("  • Background: {}", stats.background));
+                }
+                
+                ui.add_space(10.0);
+                
+                // Cancel button
+                if ui.button("❌ Cancel").clicked() {
+                    app.cancel_balance_analysis();
+                }
             } else if let Some(stats) = &app.balance.results {
                 ui.heading("Balance Analysis Results");
                 ui.add_space(10.0);
