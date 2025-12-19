@@ -22,7 +22,7 @@ pub enum BalanceProgressMessage {
 }
 
 /// Categories for classifying images based on their detections
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageCategory {
     /// Image contains only CT players (class_id 1)
     CTOnly,
@@ -126,6 +126,64 @@ impl Default for TargetRatios {
             hardcase_ratio: 0.05,
         }
     }
+}
+
+// =============================================================================
+// DATA INTEGRITY ANALYSIS
+// =============================================================================
+
+/// Types of integrity issues found in the dataset
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntegrityIssueType {
+    /// Image file exists but no corresponding label file
+    ImageWithoutLabel,
+    /// Label file exists but no corresponding image
+    LabelWithoutImage,
+}
+
+/// A single integrity issue
+#[derive(Debug, Clone)]
+pub struct IntegrityIssue {
+    pub issue_type: IntegrityIssueType,
+    /// The existing file path
+    pub path: PathBuf,
+    /// The missing counterpart path (for display purposes)
+    pub expected_counterpart: PathBuf,
+}
+
+/// Statistics about dataset integrity issues
+#[derive(Debug, Clone, Default)]
+pub struct IntegrityStats {
+    pub images_without_labels: Vec<IntegrityIssue>,
+    pub labels_without_images: Vec<IntegrityIssue>,
+}
+
+impl IntegrityStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Total count of all integrity issues
+    pub fn total_issues(&self) -> usize {
+        self.images_without_labels.len() + self.labels_without_images.len()
+    }
+
+    /// Check if the dataset has any integrity issues
+    pub fn has_issues(&self) -> bool {
+        self.total_issues() > 0
+    }
+}
+
+/// Progress message types for integrity analysis
+#[derive(Clone)]
+pub enum IntegrityProgressMessage {
+    Progress {
+        current: usize,
+        total: usize,
+        stats: IntegrityStats,
+    },
+    Complete(IntegrityStats),
+    Cancelled(IntegrityStats),
 }
 
 /// Categorize an image based on its label file
@@ -377,4 +435,158 @@ pub fn get_recommendations(stats: &BalanceStats, target_ratios: &TargetRatios) -
     }
 
     recommendations
+}
+
+/// Analyze dataset integrity to find orphaned files
+/// 
+/// Detects:
+/// - Images without corresponding label files
+/// - Label files without corresponding images
+pub fn analyze_dataset_integrity_with_progress(
+    dataset_path: &PathBuf,
+    split: DatasetSplit,
+    progress_tx: Option<Sender<IntegrityProgressMessage>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+) -> IntegrityStats {
+    let mut stats = IntegrityStats::new();
+
+    let images_path = dataset_path.join(split.as_str()).join("images");
+    let labels_path = dataset_path.join(split.as_str()).join("labels");
+
+    info!("Analyzing integrity for split: {:?}", split.as_str());
+    info!("Images path: {:?}", images_path);
+    info!("Labels path: {:?}", labels_path);
+
+    // Collect all image files
+    let mut image_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut image_paths: Vec<PathBuf> = Vec::new();
+    
+    if let Ok(entries) = fs::read_dir(&images_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if ext == "png" || ext == "jpg" || ext == "jpeg" {
+                    if let Some(stem) = path.file_stem() {
+                        image_stems.insert(stem.to_string_lossy().to_string());
+                        image_paths.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Collect all label files
+    let mut label_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut label_paths: Vec<PathBuf> = Vec::new();
+    
+    if let Ok(entries) = fs::read_dir(&labels_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext.to_string_lossy().to_lowercase() == "txt" {
+                    if let Some(stem) = path.file_stem() {
+                        label_stems.insert(stem.to_string_lossy().to_string());
+                        label_paths.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    let total_files = image_paths.len() + label_paths.len();
+    let mut processed = 0;
+
+    // Find images without labels
+    for image_path in &image_paths {
+        // Check for cancellation
+        if let Some(ref cancel) = cancel_flag {
+            if cancel.load(Ordering::Relaxed) {
+                warn!("Integrity analysis cancelled by user");
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(IntegrityProgressMessage::Cancelled(stats.clone()));
+                }
+                return stats;
+            }
+        }
+
+        if let Some(stem) = image_path.file_stem() {
+            let stem_str = stem.to_string_lossy().to_string();
+            if !label_stems.contains(&stem_str) {
+                let expected_label = labels_path.join(format!("{}.txt", stem_str));
+                stats.images_without_labels.push(IntegrityIssue {
+                    issue_type: IntegrityIssueType::ImageWithoutLabel,
+                    path: image_path.clone(),
+                    expected_counterpart: expected_label,
+                });
+            }
+        }
+
+        processed += 1;
+        if let Some(ref tx) = progress_tx {
+            if processed % 50 == 0 {
+                let _ = tx.send(IntegrityProgressMessage::Progress {
+                    current: processed,
+                    total: total_files,
+                    stats: stats.clone(),
+                });
+            }
+        }
+    }
+
+    // Find labels without images
+    for label_path in &label_paths {
+        // Check for cancellation
+        if let Some(ref cancel) = cancel_flag {
+            if cancel.load(Ordering::Relaxed) {
+                warn!("Integrity analysis cancelled by user");
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(IntegrityProgressMessage::Cancelled(stats.clone()));
+                }
+                return stats;
+            }
+        }
+
+        if let Some(stem) = label_path.file_stem() {
+            let stem_str = stem.to_string_lossy().to_string();
+            if !image_stems.contains(&stem_str) {
+                // Try to guess the expected image extension
+                let expected_image = images_path.join(format!("{}.png", stem_str));
+                stats.labels_without_images.push(IntegrityIssue {
+                    issue_type: IntegrityIssueType::LabelWithoutImage,
+                    path: label_path.clone(),
+                    expected_counterpart: expected_image,
+                });
+            }
+        }
+
+        processed += 1;
+        if let Some(ref tx) = progress_tx {
+            if processed % 50 == 0 || processed == total_files {
+                let _ = tx.send(IntegrityProgressMessage::Progress {
+                    current: processed,
+                    total: total_files,
+                    stats: stats.clone(),
+                });
+            }
+        }
+    }
+
+    info!(
+        "Integrity analysis complete: {} images without labels, {} labels without images",
+        stats.images_without_labels.len(),
+        stats.labels_without_images.len()
+    );
+
+    // Send completion message
+    if let Some(tx) = progress_tx {
+        let _ = tx.send(IntegrityProgressMessage::Complete(stats.clone()));
+    }
+
+    stats
+}
+
+/// Analyze dataset integrity (synchronous version)
+pub fn analyze_dataset_integrity(dataset_path: &PathBuf, split: DatasetSplit) -> IntegrityStats {
+    analyze_dataset_integrity_with_progress(dataset_path, split, None, None)
 }

@@ -50,12 +50,47 @@ A GUI application for efficiently managing and cleaning YOLO-format datasets. Bu
 - **No Results Screen**: Clear message when no images match, with options to modify or clear filters
 - **Filtered Navigation**: Navigate through filtered results seamlessly with correct position display
 
-### 📊 Dataset Balance Analyzer
+### 📊 Dataset Analysis
+
+The Dataset Analysis dialog provides two powerful features accessible via the "📊 Analyze Balance" button:
+
+#### Balance Analysis Tab
 - **Distribution Analysis**: Analyze dataset by player types (CT Only, T Only, Multiple Players, Background, Hard Cases)
 - **Progress Tracking**: Real-time progress display with cancel support during analysis
 - **Target Ratios**: Compare current distribution against target ratios (85% players, 10% background, 5% hard cases)
 - **Smart Recommendations**: Get actionable suggestions for balancing your dataset
 - **Detailed Breakdown**: View percentages and counts for each category
+
+#### Data Integrity Tab
+- **Orphan Detection**: Find images without corresponding label files and vice versa
+- **Per-Split Analysis**: Scans all splits (train, val, test) for integrity issues
+- **Bulk Selection**: Select all, deselect all, or individually select issues to fix
+- **Safe Deletion**: Delete selected orphaned files or delete all issues at once
+- **Real-time Progress**: Progress bar during scanning with file counts
+
+### 🔄 Auto-Rebalancing
+
+The auto-rebalancing feature provides comprehensive dataset balancing with three key aspects:
+
+#### Split Size Balancing (Train/Val/Test Distribution)
+- **Target Ratios**: Automatically redistributes images to achieve 70% train / 20% val / 10% test
+- **Smart Redistribution**: Moves images from oversized splits to undersized splits
+- **2% Tolerance**: Only redistributes if splits deviate more than 2% from target
+
+#### CT/T Player Balancing (50%/50% Player Types)
+- **Equal Representation**: Ensures CT and T player images are equally distributed
+- **Priority Selection**: When moving images between splits, prioritizes the player type that's underrepresented in the destination
+- **Applies to**: CT-only images and T-only images (images with players)
+
+#### Category-Based Balancing (Background/Player Ratio)
+- **Target Composition**: Move excess background images or player images between splits
+- **Per-Split Control**: Balance individual splits independently
+
+#### Features
+- **Preview Before Execute**: See exactly which files will be moved before confirming
+- **Undoable Operations**: All moves can be undone within the session
+- **Progress Tracking**: Real-time progress during file moves with cancel support
+- **Smart Selection**: Algorithm intelligently selects which images to move based on multiple balance criteria
 
 ### 📝 Logging & Debugging
 - **Structured Logging**: Comprehensive logging system using `tracing` and `tracing-subscriber`
@@ -138,17 +173,45 @@ The compiled binary will be available in `target/release/clean-cs2vision-dataset
      - **Clear Filters** or **Modify Filters** buttons
    - Click **Clear** in top panel or **Clear All** in dialog to remove filters
 
-7. **Analyze Dataset Balance**
-   - Click **📊 Analyze Balance** button to analyze your dataset distribution
-   - Monitor progress as the tool scans all images and categorizes them
-   - Review the analysis results showing:
-     - Player images breakdown (CT Only, T Only, Multiple Players)
-     - Background images count
-     - Hard cases (both teams, no player, or ambiguous)
-   - Compare current distribution against target ratios
-   - Follow recommendations to improve dataset balance
+7. **Analyze Dataset**
+   - Click **📊 Analyze Balance** button to open the Dataset Analysis dialog
+   - **Balance Analysis Tab**:
+     - Monitor progress as the tool scans all images and categorizes them
+     - Review the analysis results showing:
+       - Player images breakdown (CT Only, T Only, Multiple Players)
+       - Background images count
+       - Hard cases (both teams, no player, or ambiguous)
+     - Compare current distribution against target ratios
+     - Follow recommendations to improve dataset balance
+   - **Data Integrity Tab**:
+     - Click **🔄 Analyze Integrity** to scan for orphaned files
+     - Review images without labels and labels without images
+     - Select individual issues or use **☑ Select All**
+     - Click **🗑️ Delete Selected** or **⚠️ Delete All** to clean up
 
-8. **Batch Remove Black Images**
+8. **Auto-Rebalance Dataset**
+   - After analyzing balance, if excess images are detected, you'll see rebalance options
+   - For example: "📦 X excess background images" with buttons for each destination split
+   - Click a destination (e.g., **val** or **test**) to preview the move operation
+   - Review the **Preview dialog** showing:
+     - Number of images to move
+     - Source and destination splits
+     - Before/after statistics
+     - List of affected files
+   - Click **Execute** to move the files, or **Cancel** to abort
+   - After completion, you can **Undo All** if needed
+
+9. **Global Split Balancing** (NEW)
+   - Click **🔄 Balance All Splits** to optimize image distribution across all splits
+   - Automatically redistributes images to match target ratios:
+     - **Train**: 70%
+     - **Val**: 20%
+     - **Test**: 10%
+   - **CT/T Player Balancing**: When moving images, the algorithm prioritizes CT or T player images to achieve 50%/50% balance in each split
+   - Preview shows exactly how many images will move between which splits
+   - Tolerance of 2% - won't move images if splits are already close to target
+
+10. **Batch Remove Black Images**
    - Click **🧹 Remove Black Images** button to detect and remove images with black/near-black content
    - Review the confirmation dialog showing split and total image count
    - Confirm to start the batch processing
@@ -262,6 +325,7 @@ This project uses the following Rust crates:
 - **[serde](https://crates.io/crates/serde)** (v1.0): Serialization framework for settings persistence
 - **[serde_json](https://crates.io/crates/serde_json)** (v1.0): JSON serialization for settings files
 - **[directories](https://crates.io/crates/directories)** (v5.0): Standard directory paths across platforms
+- **[rand](https://crates.io/crates/rand)** (v0.8): Random number generation for rebalancing selection
 
 ## Development
 
@@ -272,12 +336,14 @@ clean-cs2vision-dataset/
 ├── src/
 │   ├── main.rs              # Application entry point (slim)
 │   ├── app.rs               # Main application logic and DatasetCleanerApp
+│   ├── navigation.rs        # Navigation utility functions
 │   ├── core/                # Core business logic
 │   │   ├── mod.rs
 │   │   ├── filter.rs        # Image filtering by team and player count
 │   │   ├── analysis/        # Dataset analysis
 │   │   │   ├── mod.rs
-│   │   │   └── balance_analyzer.rs  # Balance analysis and recommendations
+│   │   │   ├── balance_analyzer.rs  # Balance analysis, integrity checking, and recommendations
+│   │   │   └── rebalancer.rs        # Auto-rebalancing between splits
 │   │   ├── dataset/         # Dataset management
 │   │   │   ├── mod.rs
 │   │   │   ├── dataset.rs   # Dataset loading and split management
@@ -290,15 +356,22 @@ clean-cs2vision-dataset/
 │   │       └── file_ops.rs  # Delete, move, and file path utilities
 │   ├── state/               # State management
 │   │   ├── mod.rs
-│   │   ├── app_state.rs     # ImageState, UIState, BatchState, FilterState, etc.
+│   │   ├── app_state.rs     # ImageState, UIState, BatchState, FilterState, IntegrityState, etc.
 │   │   ├── settings.rs      # Persistent user settings
 │   │   └── undo_manager.rs  # Undo/redo stack management
 │   ├── ui/                  # User interface components
 │   │   ├── mod.rs
-│   │   ├── panels.rs        # UI panels (top, bottom, label, central)
+│   │   ├── panels/          # UI panels (modular organization)
+│   │   │   ├── mod.rs
+│   │   │   ├── top.rs       # Top navigation bar panel
+│   │   │   ├── bottom.rs    # Bottom status bar panel
+│   │   │   ├── central.rs   # Central image display area
+│   │   │   ├── label.rs     # Right-side label information panel
+│   │   │   └── helpers.rs   # Panel helper utilities
 │   │   ├── keyboard.rs      # Keyboard shortcut handling
 │   │   ├── batch_dialogs.rs # Batch operation dialogs and progress
-│   │   ├── balance_dialog.rs # Balance analysis dialog
+│   │   ├── balance_dialog.rs # Dataset analysis dialog (balance + integrity tabs)
+│   │   ├── rebalance_dialog.rs # Rebalance preview, progress, and results
 │   │   ├── filter_dialog.rs # Filter configuration dialog
 │   │   ├── image_renderer.rs # Image rendering with bounding boxes
 │   │   └── toast.rs         # Toast notification system
@@ -330,7 +403,8 @@ The application follows a clean, modular architecture with separation of concern
 #### Core Modules (`src/core/`)
 Business logic and domain operations:
 - **`filter.rs`**: Image filtering logic with team and player count criteria
-- **`analysis/balance_analyzer.rs`**: Dataset balance analysis, categorization, and recommendations
+- **`analysis/balance_analyzer.rs`**: Dataset balance analysis, categorization, integrity checking, and recommendations
+- **`analysis/rebalancer.rs`**: Auto-rebalancing logic for moving images between splits
 - **`dataset/dataset.rs`**: Dataset loading, split management, and image listing
 - **`dataset/label.rs`**: YOLO label file parsing and metadata extraction
 - **`image/analysis.rs`**: Image color analysis using k-means clustering in LAB color space
@@ -338,16 +412,22 @@ Business logic and domain operations:
 
 #### State Management (`src/state/`)
 Centralized state structs for application data:
-- **`app_state.rs`**: Core state structs (ImageState, UIState, BatchState, BalanceAnalysisState, FilterState)
+- **`app_state.rs`**: Core state structs (ImageState, UIState, BatchState, BalanceAnalysisState, FilterState, RebalanceState, IntegrityState)
 - **`settings.rs`**: Persistent user preferences (dataset path, window size, split, image index)
 - **`undo_manager.rs`**: Stack-based undo/redo management with unlimited history
 
 #### User Interface (`src/ui/`)
 UI components and rendering:
-- **`panels.rs`**: Main UI panels (navigation, labels, image display) using Phosphor icons
+- **`panels/`**: Modular UI panels organization
+  - `top.rs`: Top navigation bar with split buttons and actions
+  - `bottom.rs`: Bottom status bar
+  - `central.rs`: Central image display area with navigation overlays
+  - `label.rs`: Right-side label information panel
+  - `helpers.rs`: Panel helper utilities
 - **`keyboard.rs`**: Keyboard input handling and shortcuts
 - **`batch_dialogs.rs`**: Batch operation dialogs (confirmation, progress, results)
-- **`balance_dialog.rs`**: Balance analysis results dialog with recommendations
+- **`balance_dialog.rs`**: Dataset analysis dialog with Balance and Integrity tabs
+- **`rebalance_dialog.rs`**: Rebalance preview, progress tracking, and results dialogs
 - **`filter_dialog.rs`**: Filter configuration dialog with team and player count options
 - **`image_renderer.rs`**: Image rendering with overlaid bounding boxes
 - **`toast.rs`**: Toast notification system for undo/redo feedback

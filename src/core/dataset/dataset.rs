@@ -3,7 +3,7 @@ use std::fs;
 use tracing::{info, warn};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DatasetSplit {
     Train,
     Val,

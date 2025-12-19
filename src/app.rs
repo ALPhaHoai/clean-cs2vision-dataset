@@ -16,8 +16,8 @@ use crate::core;
 use crate::core::dataset::{parse_label_file, Dataset, DatasetSplit};
 use crate::navigation::Navigator;
 use crate::state::{
-    BalanceAnalysisState, BatchProgressMessage, BatchState, FilterState, ImageState, Settings,
-    UIState, UndoManager, UndoState,
+    BalanceAnalysisState, BatchProgressMessage, BatchState, FilterState, ImageState, 
+    IntegrityState, RebalanceState, Settings, UIState, UndoManager, UndoState,
 };
 use crate::ui;
 
@@ -42,6 +42,8 @@ pub struct DatasetCleanerApp {
     pub batch: BatchState,
     pub balance: BalanceAnalysisState,
     pub filter: FilterState,
+    pub rebalance: RebalanceState,
+    pub integrity: IntegrityState,
 }
 
 impl Default for DatasetCleanerApp {
@@ -99,6 +101,8 @@ impl Default for DatasetCleanerApp {
                 criteria: filter_criteria,
                 ..FilterState::new()
             },
+            rebalance: RebalanceState::new(),
+            integrity: IntegrityState::new(),
         };
 
         // Parse label for the current image if dataset was loaded
@@ -704,6 +708,319 @@ impl DatasetCleanerApp {
             flag.store(true, Ordering::Relaxed);
         }
     }
+
+    /// Calculate a rebalance plan based on current balance stats
+    pub fn calculate_rebalance_plan(&mut self, config: core::analysis::RebalanceConfig) {
+        if let Some(stats) = &self.balance.results {
+            if let Some(dataset_path) = self.dataset.dataset_path() {
+                info!("Calculating rebalance plan for {:?}", config.category);
+                
+                let plan = core::analysis::calculate_rebalance_plan(
+                    dataset_path,
+                    &config,
+                    stats,
+                );
+
+                if plan.is_empty() {
+                    info!("No images need to be moved");
+                    self.rebalance.error_message = Some(
+                        "No images need to be moved - already balanced!".to_string()
+                    );
+                } else {
+                    info!("Plan calculated: {} images to move", plan.len());
+                    self.rebalance.plan = Some(plan);
+                    self.rebalance.show_preview = true;
+                    self.rebalance.error_message = None;
+                }
+                
+                self.rebalance.config = Some(config);
+            } else {
+                warn!("No dataset loaded, cannot calculate rebalance");
+            }
+        } else {
+            warn!("No balance analysis results, cannot calculate rebalance");
+        }
+    }
+
+    /// Execute the current rebalance plan
+    pub fn execute_rebalance(&mut self) {
+        if let (Some(plan), Some(dataset_path)) = 
+            (&self.rebalance.plan, self.dataset.dataset_path().cloned()) 
+        {
+            info!("Executing rebalance plan with {} actions", plan.len());
+            
+            self.rebalance.is_active = true;
+            self.rebalance.show_preview = false;
+            self.rebalance.progress = Some((0, plan.len()));
+
+            // Create channel for progress updates
+            let (tx, rx) = channel();
+            self.rebalance.progress_receiver = Some(rx);
+
+            // Create cancellation flag
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.rebalance.cancel_flag = Some(cancel_flag.clone());
+
+            // Clone plan for background thread
+            let plan_clone = plan.clone();
+
+            // Spawn background thread
+            thread::spawn(move || {
+                info!("Background thread started for rebalance execution");
+                core::analysis::execute_rebalance_plan(
+                    &dataset_path,
+                    &plan_clone,
+                    Some(tx),
+                    Some(cancel_flag),
+                );
+                info!("Background thread completed rebalance execution");
+            });
+        } else {
+            warn!("No rebalance plan to execute");
+        }
+    }
+
+    /// Cancel ongoing rebalance execution
+    pub fn cancel_rebalance(&mut self) {
+        info!("User requested rebalance cancellation");
+        if let Some(flag) = &self.rebalance.cancel_flag {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Undo the last rebalance operation
+    pub fn undo_rebalance(&mut self) {
+        if !self.rebalance.can_undo() {
+            warn!("No rebalance to undo");
+            return;
+        }
+
+        if let Some(results) = self.rebalance.last_results.take() {
+            info!("Undoing rebalance with {} results", results.len());
+
+            self.rebalance.is_active = true;
+            let success_count = results.iter().filter(|r| r.success).count();
+            self.rebalance.progress = Some((0, success_count));
+
+            // Create channel for progress updates
+            let (tx, rx) = channel();
+            self.rebalance.progress_receiver = Some(rx);
+
+            // Create cancellation flag
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.rebalance.cancel_flag = Some(cancel_flag.clone());
+
+            // Spawn background thread
+            thread::spawn(move || {
+                info!("Background thread started for rebalance undo");
+                core::analysis::undo_rebalance(&results, Some(tx), Some(cancel_flag));
+                info!("Background thread completed rebalance undo");
+            });
+        }
+    }
+
+    /// Close rebalance dialogs and reset state
+    pub fn close_rebalance(&mut self) {
+        self.rebalance.reset();
+    }
+
+    /// Calculate a global rebalance plan for all splits
+    pub fn calculate_global_rebalance(&mut self) {
+        info!("calculate_global_rebalance called!");
+        if let Some(dataset_path) = self.dataset.dataset_path() {
+            info!("Calculating global rebalance plan for all splits");
+            
+            let config = core::analysis::GlobalRebalanceConfig::default();
+            let plan = core::analysis::calculate_global_rebalance_plan(
+                dataset_path,
+                &config,
+            );
+
+            if plan.is_empty() {
+                info!("No moves possible - splits cannot be improved by redistribution");
+                self.rebalance.error_message = Some(
+                    "ℹ️ No redistribution possible. All splits have similar ratios - consider adding background images to reach target 10% BG.".to_string()
+                );
+            } else {
+                info!("Global plan calculated: {} total moves in {} groups", 
+                    plan.total_moves, plan.moves.len());
+                self.rebalance.global_plan = Some(plan);
+                self.rebalance.is_global = true;
+                self.rebalance.show_preview = true;
+                self.rebalance.error_message = None;
+            }
+        } else {
+            warn!("No dataset loaded, cannot calculate global rebalance");
+        }
+    }
+
+    /// Execute the current global rebalance plan
+    pub fn execute_global_rebalance(&mut self) {
+        if let (Some(plan), Some(dataset_path)) = 
+            (&self.rebalance.global_plan, self.dataset.dataset_path().cloned()) 
+        {
+            info!("Executing global rebalance plan with {} total moves", plan.total_moves);
+            
+            self.rebalance.is_active = true;
+            self.rebalance.show_preview = false;
+            self.rebalance.progress = Some((0, plan.total_moves));
+
+            let (tx, rx) = channel();
+            self.rebalance.progress_receiver = Some(rx);
+
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.rebalance.cancel_flag = Some(cancel_flag.clone());
+
+            let plan_clone = plan.clone();
+            thread::spawn(move || {
+                info!("Background thread started for global rebalance execution");
+                core::analysis::execute_global_rebalance_plan(
+                    &dataset_path,
+                    &plan_clone,
+                    Some(tx),
+                    Some(cancel_flag),
+                );
+                info!("Background thread completed global rebalance execution");
+            });
+        } else {
+            warn!("No global rebalance plan to execute");
+        }
+    }
+
+    // =========================================================================
+    // DATA INTEGRITY METHODS
+    // =========================================================================
+
+    /// Start analyzing dataset integrity in background thread
+    pub fn analyze_integrity(&mut self) {
+        if let Some(dataset_path) = self.dataset.dataset_path() {
+            info!("Starting integrity analysis for current split");
+            self.integrity.analyzing = true;
+            self.integrity.current_progress = 0;
+            self.integrity.total_files = 0;
+            self.integrity.results = None;
+            self.integrity.selected_images_without_labels.clear();
+            self.integrity.selected_labels_without_images.clear();
+
+            let (tx, rx) = channel();
+            self.integrity.progress_receiver = Some(rx);
+
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.integrity.cancel_flag = Some(cancel_flag.clone());
+
+            let dataset_path = dataset_path.clone();
+            let split = self.dataset.current_split();
+
+            thread::spawn(move || {
+                info!("Background thread started for integrity analysis");
+                core::analysis::analyze_dataset_integrity_with_progress(
+                    &dataset_path,
+                    split,
+                    Some(tx),
+                    Some(cancel_flag),
+                );
+                info!("Background thread completed integrity analysis");
+            });
+        } else {
+            warn!("No dataset loaded, cannot analyze integrity");
+        }
+    }
+
+    /// Cancel ongoing integrity analysis
+    pub fn cancel_integrity_analysis(&mut self) {
+        info!("User requested integrity analysis cancellation");
+        if let Some(flag) = &self.integrity.cancel_flag {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Delete selected integrity issues (orphaned files)
+    pub fn delete_selected_integrity_issues(&mut self) {
+        if let Some(ref stats) = self.integrity.results {
+            let mut deleted_count = 0;
+            let mut errors = Vec::new();
+
+            // Delete selected images without labels
+            let selected_images: Vec<usize> = self.integrity.selected_images_without_labels
+                .iter()
+                .copied()
+                .collect();
+            
+            for idx in selected_images.iter().rev() {
+                if let Some(issue) = stats.images_without_labels.get(*idx) {
+                    if issue.path.exists() {
+                        match fs::remove_file(&issue.path) {
+                            Ok(_) => {
+                                info!("Deleted orphaned image: {:?}", issue.path);
+                                deleted_count += 1;
+                            }
+                            Err(e) => {
+                                error!("Failed to delete {:?}: {}", issue.path, e);
+                                errors.push(format!("{}: {}", issue.path.display(), e));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete selected labels without images
+            let selected_labels: Vec<usize> = self.integrity.selected_labels_without_images
+                .iter()
+                .copied()
+                .collect();
+            
+            for idx in selected_labels.iter().rev() {
+                if let Some(issue) = stats.labels_without_images.get(*idx) {
+                    if issue.path.exists() {
+                        match fs::remove_file(&issue.path) {
+                            Ok(_) => {
+                                info!("Deleted orphaned label: {:?}", issue.path);
+                                deleted_count += 1;
+                            }
+                            Err(e) => {
+                                error!("Failed to delete {:?}: {}", issue.path, e);
+                                errors.push(format!("{}: {}", issue.path.display(), e));
+                            }
+                        }
+                    }
+                }
+            }
+
+            info!("Deleted {} orphaned files", deleted_count);
+
+            if !errors.is_empty() {
+                self.integrity.error_message = Some(format!(
+                    "Failed to delete {} files. See log for details.",
+                    errors.len()
+                ));
+            }
+
+            // Clear selections
+            self.integrity.selected_images_without_labels.clear();
+            self.integrity.selected_labels_without_images.clear();
+
+            // Re-run integrity analysis to refresh the list
+            self.analyze_integrity();
+            
+            // Reload dataset in case we deleted images
+            self.reload_dataset_with_filters(false);
+        }
+    }
+
+    /// Delete all integrity issues
+    pub fn delete_all_integrity_issues(&mut self) {
+        if let Some(ref stats) = self.integrity.results {
+            // Select all issues
+            for i in 0..stats.images_without_labels.len() {
+                self.integrity.selected_images_without_labels.insert(i);
+            }
+            for i in 0..stats.labels_without_images.len() {
+                self.integrity.selected_labels_without_images.insert(i);
+            }
+            // Then delete them
+            self.delete_selected_integrity_issues();
+        }
+    }
 }
 
 impl eframe::App for DatasetCleanerApp {
@@ -756,10 +1073,33 @@ impl eframe::App for DatasetCleanerApp {
                     self.balance.results = Some(stats);
                 }
                 core::analysis::BalanceProgressMessage::Complete(stats) => {
-                    self.balance.results = Some(stats);
+                    self.balance.results = Some(stats.clone());
                     self.balance.analyzing = false;
                     self.balance.progress_receiver = None;
                     self.balance.cancel_flag = None;
+                    
+                    // Cache best destinations for rebalance buttons
+                    if let Some(dataset_path) = self.dataset.dataset_path() {
+                        let current_split = self.dataset.current_split();
+                        let target_ratios = core::analysis::TargetRatios {
+                            player_ratio: self.config.target_player_ratio,
+                            background_ratio: self.config.target_background_ratio,
+                            hardcase_ratio: self.config.target_hardcase_ratio,
+                        };
+                        
+                        self.balance.cached_best_bg_dest = core::analysis::find_best_destination_split(
+                            dataset_path,
+                            current_split,
+                            core::analysis::ImageCategory::Background,
+                            &target_ratios,
+                        );
+                        self.balance.cached_best_player_dest = core::analysis::find_best_destination_split(
+                            dataset_path,
+                            current_split,
+                            core::analysis::ImageCategory::CTOnly,
+                            &target_ratios,
+                        );
+                    }
                 }
                 core::analysis::BalanceProgressMessage::Cancelled(stats) => {
                     self.balance.results = Some(stats);
@@ -768,6 +1108,89 @@ impl eframe::App for DatasetCleanerApp {
                     self.balance.cancel_flag = None;
                 }
             }
+        }
+
+        // Poll for integrity analysis updates
+        let mut integrity_messages = Vec::new();
+        if let Some(receiver) = &self.integrity.progress_receiver {
+            while let Ok(message) = receiver.try_recv() {
+                integrity_messages.push(message);
+            }
+        }
+
+        // Process integrity messages outside of the borrow
+        for message in integrity_messages {
+            match message {
+                core::analysis::IntegrityProgressMessage::Progress {
+                    current,
+                    total,
+                    stats,
+                } => {
+                    self.integrity.current_progress = current;
+                    self.integrity.total_files = total;
+                    self.integrity.results = Some(stats);
+                }
+                core::analysis::IntegrityProgressMessage::Complete(stats) => {
+                    self.integrity.results = Some(stats);
+                    self.integrity.analyzing = false;
+                    self.integrity.progress_receiver = None;
+                    self.integrity.cancel_flag = None;
+                }
+                core::analysis::IntegrityProgressMessage::Cancelled(stats) => {
+                    self.integrity.results = Some(stats);
+                    self.integrity.analyzing = false;
+                    self.integrity.progress_receiver = None;
+                    self.integrity.cancel_flag = None;
+                }
+            }
+        }
+
+        // Poll for rebalance progress updates
+        let mut rebalance_complete = None;
+        let mut rebalance_error = None;
+        if let Some(receiver) = &self.rebalance.progress_receiver {
+            while let Ok(message) = receiver.try_recv() {
+                match message {
+                    core::analysis::RebalanceProgressMessage::Progress { current, total, last_moved } => {
+                        self.rebalance.progress = Some((current, total));
+                        self.rebalance.last_moved = Some(last_moved);
+                    }
+                    core::analysis::RebalanceProgressMessage::Complete { success_count, failed_count, results } => {
+                        rebalance_complete = Some((true, success_count, failed_count, results));
+                    }
+                    core::analysis::RebalanceProgressMessage::Cancelled { completed_count, results } => {
+                        rebalance_complete = Some((false, completed_count, 0, results));
+                    }
+                    core::analysis::RebalanceProgressMessage::Error(msg) => {
+                        rebalance_error = Some(msg);
+                    }
+                }
+            }
+        }
+
+        // Handle error outside of borrow
+        if let Some(msg) = rebalance_error {
+            self.rebalance.error_message = Some(msg);
+            self.rebalance.is_active = false;
+            self.rebalance.progress_receiver = None;
+            self.rebalance.cancel_flag = None;
+        }
+
+        // Handle rebalance completion outside of borrow
+        if let Some((_completed, success_count, _failed_count, results)) = rebalance_complete {
+            self.rebalance.is_active = false;
+            self.rebalance.progress_receiver = None;
+            self.rebalance.cancel_flag = None;
+            self.rebalance.show_result = true;
+            
+            // Store results for potential undo
+            if success_count > 0 {
+                self.rebalance.last_results = Some(results);
+            }
+            
+            // Reload the dataset to reflect changes
+            #[allow(deprecated)]
+            self.reload_and_refresh(false);
         }
 
         ui::render_top_panel(self, ctx);
@@ -783,6 +1206,7 @@ impl eframe::App for DatasetCleanerApp {
         ui::render_toast_notification(self, ctx);
         ui::render_filter_dialog(self, ctx);
         ui::render_balance_dialog(self, ctx);
+        ui::render_rebalance_dialog(self, ctx);
 
         ui::handle_keyboard_shortcuts(self, ctx);
     }

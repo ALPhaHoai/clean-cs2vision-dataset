@@ -833,6 +833,7 @@ dependencies = [
  "image 0.25.9",
  "kmeans_colors",
  "palette",
+ "rand 0.8.5",
  "rfd",
  "serde",
  "serde_json",

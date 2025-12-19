@@ -4,6 +4,7 @@ pub mod filter_dialog;
 pub mod image_renderer;
 pub mod keyboard;
 pub mod panels;
+pub mod rebalance_dialog;
 pub mod toast;
 
 // Re-export commonly used functions
@@ -18,3 +19,6 @@ pub use toast::render_toast_notification;
 pub use filter_dialog::render_filter_dialog;
 
 pub use balance_dialog::render_balance_dialog;
+
+pub use rebalance_dialog::render_rebalance_dialog;
+

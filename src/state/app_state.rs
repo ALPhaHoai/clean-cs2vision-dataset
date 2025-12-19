@@ -110,10 +110,18 @@ pub struct BalanceAnalysisState {
     pub results: Option<crate::core::analysis::BalanceStats>,
     /// Whether to show the balance dialog
     pub show_dialog: bool,
+    /// Current tab in the dialog (0 = Balance, 1 = Integrity)
+    pub current_tab: usize,
     /// Current progress (images analyzed so far)
     pub current_progress: usize,
     /// Total images to analyze
     pub total_images: usize,
+    /// Tracked minimum height for popup (grows but never shrinks)
+    pub tracked_min_height: f32,
+    /// Cached best destination for background images (split, needed count)
+    pub cached_best_bg_dest: Option<(crate::core::dataset::DatasetSplit, i32)>,
+    /// Cached best destination for player images (split, needed count)
+    pub cached_best_player_dest: Option<(crate::core::dataset::DatasetSplit, i32)>,
     /// Channel receiver for progress updates from background thread
     pub(crate) progress_receiver:
         Option<std::sync::mpsc::Receiver<crate::core::analysis::BalanceProgressMessage>>,
@@ -128,8 +136,12 @@ impl BalanceAnalysisState {
             analyzing: false,
             results: None,
             show_dialog: false,
+            current_tab: 0,
             current_progress: 0,
             total_images: 0,
+            tracked_min_height: 400.0,
+            cached_best_bg_dest: None,
+            cached_best_player_dest: None,
             progress_receiver: None,
             cancel_flag: None,
         }
@@ -197,6 +209,135 @@ impl FilterState {
             self.filtered_indices.len()
         } else {
             self.total_count
+        }
+    }
+}
+
+/// State for dataset rebalancing operations
+#[derive(Default)]
+pub struct RebalanceState {
+    /// Whether a rebalance is currently being calculated or executed
+    pub is_active: bool,
+    /// Whether this is a global (all splits) rebalance
+    pub is_global: bool,
+    /// Current rebalance plan (if calculated) - single split
+    pub plan: Option<crate::core::analysis::RebalancePlan>,
+    /// Current global rebalance plan (if calculated) - all splits
+    pub global_plan: Option<crate::core::analysis::GlobalRebalancePlan>,
+    /// Current rebalance configuration
+    pub config: Option<crate::core::analysis::RebalanceConfig>,
+    /// Execution progress (current, total)
+    pub progress: Option<(usize, usize)>,
+    /// Last moved filename (for progress display)
+    pub last_moved: Option<String>,
+    /// Results from last execution (for undo)
+    pub last_results: Option<Vec<crate::core::analysis::MoveResult>>,
+    /// Channel receiver for progress updates
+    pub(crate) progress_receiver:
+        Option<std::sync::mpsc::Receiver<crate::core::analysis::RebalanceProgressMessage>>,
+    /// Flag to signal cancellation
+    pub(crate) cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Show the rebalance preview dialog
+    pub show_preview: bool,
+    /// Show the execution result dialog
+    pub show_result: bool,
+    /// Error message if something went wrong
+    pub error_message: Option<String>,
+}
+
+impl RebalanceState {
+    /// Create a new RebalanceState with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset all state (called after closing dialogs)
+    pub fn reset(&mut self) {
+        self.is_active = false;
+        self.plan = None;
+        self.progress = None;
+        self.last_moved = None;
+        self.progress_receiver = None;
+        self.cancel_flag = None;
+        self.show_preview = false;
+        self.show_result = false;
+        self.error_message = None;
+        // Note: keep last_results and config for undo capability
+    }
+
+    /// Check if there are results that can be undone
+    pub fn can_undo(&self) -> bool {
+        self.last_results
+            .as_ref()
+            .map(|r| r.iter().any(|res| res.success))
+            .unwrap_or(false)
+    }
+}
+
+/// State for dataset integrity checking
+#[derive(Default)]
+pub struct IntegrityState {
+    /// Whether integrity check is currently running
+    pub analyzing: bool,
+    /// Results of the integrity check  
+    pub results: Option<crate::core::analysis::IntegrityStats>,
+    /// Selected issue indices (for images without labels tab)
+    pub selected_images_without_labels: std::collections::HashSet<usize>,
+    /// Selected issue indices (for labels without images tab)
+    pub selected_labels_without_images: std::collections::HashSet<usize>,
+    /// Current tab (0 = images without labels, 1 = labels without images)
+    pub current_tab: usize,
+    /// Current progress during analysis
+    pub current_progress: usize,
+    /// Total files to analyze
+    pub total_files: usize,
+    /// Channel receiver for progress updates
+    pub(crate) progress_receiver:
+        Option<std::sync::mpsc::Receiver<crate::core::analysis::IntegrityProgressMessage>>,
+    /// Flag to signal cancellation
+    pub(crate) cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Whether deletion is in progress
+    pub deleting: bool,
+    /// Error message if something went wrong
+    pub error_message: Option<String>,
+}
+
+impl IntegrityState {
+    /// Create a new IntegrityState with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset the state
+    pub fn reset(&mut self) {
+        self.analyzing = false;
+        self.results = None;
+        self.selected_images_without_labels.clear();
+        self.selected_labels_without_images.clear();
+        self.current_tab = 0;
+        self.current_progress = 0;
+        self.total_files = 0;
+        self.progress_receiver = None;
+        self.cancel_flag = None;
+        self.deleting = false;
+        self.error_message = None;
+    }
+
+    /// Check if there are any selected items in the current tab
+    pub fn has_selection(&self) -> bool {
+        match self.current_tab {
+            0 => !self.selected_images_without_labels.is_empty(),
+            1 => !self.selected_labels_without_images.is_empty(),
+            _ => false,
+        }
+    }
+
+    /// Get count of selected items in current tab
+    pub fn selection_count(&self) -> usize {
+        match self.current_tab {
+            0 => self.selected_images_without_labels.len(),
+            1 => self.selected_labels_without_images.len(),
+            _ => 0,
         }
     }
 }
