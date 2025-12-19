@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -57,6 +58,8 @@ pub struct BalanceStats {
     pub multiple_player: usize,
     pub background: usize,
     pub hard_case: usize,
+    /// Count of images per location (e.g., "TSpawn" => 150)
+    pub location_counts: HashMap<String, usize>,
 }
 
 impl BalanceStats {
@@ -68,6 +71,7 @@ impl BalanceStats {
             multiple_player: 0,
             background: 0,
             hard_case: 0,
+            location_counts: HashMap::new(),
         }
     }
 
@@ -290,6 +294,13 @@ pub fn analyze_dataset_with_progress(
                 ImageCategory::MultiplePlayer => stats.multiple_player += 1,
                 ImageCategory::Background => stats.background += 1,
                 ImageCategory::HardCase => stats.hard_case += 1,
+            }
+
+            // Track location statistics
+            if let Some(label_info) = parse_label_file(&label_path) {
+                if let Some(location) = label_info.location {
+                    *stats.location_counts.entry(location).or_insert(0) += 1;
+                }
             }
         }
 

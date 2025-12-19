@@ -667,12 +667,18 @@ impl DatasetCleanerApp {
     }
 
     pub fn analyze_balance(&mut self) {
+        self.analyze_balance_for_split(self.balance.selected_split_index);
+    }
+
+    /// Analyze balance for a specific split (0=Train, 1=Val, 2=Test, 3=All)
+    pub fn analyze_balance_for_split(&mut self, split_index: usize) {
         if let Some(dataset_path) = self.dataset.dataset_path() {
-            info!("Starting balance analysis for current split");
+            info!("Starting balance analysis for split_index: {}", split_index);
             self.balance.analyzing = true;
             self.balance.show_dialog = true;
             self.balance.current_progress = 0;
             self.balance.total_images = 0;
+            self.balance.selected_split_index = split_index;
 
             // Create a channel for progress updates
             let (tx, rx) = channel();
@@ -684,19 +690,69 @@ impl DatasetCleanerApp {
 
             // Clone the data needed for the background thread
             let dataset_path = dataset_path.clone();
-            let split = self.dataset.current_split();
 
-            // Spawn background thread to analyze
-            thread::spawn(move || {
-                info!("Background thread started for balance analysis");
-                let _stats = core::analysis::analyze_dataset_with_progress(
-                    &dataset_path,
-                    split,
-                    Some(tx),
-                    Some(cancel_flag),
-                );
-                info!("Background thread completed balance analysis");
-            });
+            if split_index == 3 {
+                // Analyze ALL splits and combine results
+                thread::spawn(move || {
+                    info!("Background thread started for ALL splits analysis");
+                    
+                    // Analyze each split
+                    let train_stats = core::analysis::analyze_dataset(
+                        &dataset_path,
+                        core::dataset::DatasetSplit::Train,
+                    );
+                    let val_stats = core::analysis::analyze_dataset(
+                        &dataset_path,
+                        core::dataset::DatasetSplit::Val,
+                    );
+                    let test_stats = core::analysis::analyze_dataset(
+                        &dataset_path,
+                        core::dataset::DatasetSplit::Test,
+                    );
+                    
+                    // Combine stats
+                    let mut combined = core::analysis::BalanceStats::new();
+                    combined.total_images = train_stats.total_images + val_stats.total_images + test_stats.total_images;
+                    combined.ct_only = train_stats.ct_only + val_stats.ct_only + test_stats.ct_only;
+                    combined.t_only = train_stats.t_only + val_stats.t_only + test_stats.t_only;
+                    combined.multiple_player = train_stats.multiple_player + val_stats.multiple_player + test_stats.multiple_player;
+                    combined.background = train_stats.background + val_stats.background + test_stats.background;
+                    combined.hard_case = train_stats.hard_case + val_stats.hard_case + test_stats.hard_case;
+                    
+                    // Combine location counts
+                    for (loc, count) in train_stats.location_counts {
+                        *combined.location_counts.entry(loc).or_insert(0) += count;
+                    }
+                    for (loc, count) in val_stats.location_counts {
+                        *combined.location_counts.entry(loc).or_insert(0) += count;
+                    }
+                    for (loc, count) in test_stats.location_counts {
+                        *combined.location_counts.entry(loc).or_insert(0) += count;
+                    }
+                    
+                    info!("ALL splits analysis complete: {} total images", combined.total_images);
+                    let _ = tx.send(core::analysis::BalanceProgressMessage::Complete(combined));
+                });
+            } else {
+                // Analyze single split
+                let split = match split_index {
+                    0 => core::dataset::DatasetSplit::Train,
+                    1 => core::dataset::DatasetSplit::Val,
+                    2 => core::dataset::DatasetSplit::Test,
+                    _ => core::dataset::DatasetSplit::Train,
+                };
+                
+                thread::spawn(move || {
+                    info!("Background thread started for balance analysis");
+                    let _stats = core::analysis::analyze_dataset_with_progress(
+                        &dataset_path,
+                        split,
+                        Some(tx),
+                        Some(cancel_flag),
+                    );
+                    info!("Background thread completed balance analysis");
+                });
+            }
         } else {
             warn!("No dataset loaded, cannot analyze balance");
         }

@@ -90,15 +90,73 @@ fn render_balance_tab(app: &mut DatasetCleanerApp, ui: &mut egui::Ui) {
     } else if app.balance.results.is_some() {
         render_balance_results(app, ui);
     } else {
-        // No analysis yet - show button to start
+        // No analysis yet - show split selector and info
         ui.vertical_centered(|ui| {
-            ui.add_space(20.0);
-            ui.label("Click the button below to analyze dataset balance.");
             ui.add_space(10.0);
-            if ui.button("🔄 Start Balance Analysis").clicked() {
-                app.analyze_balance();
+            
+            // Split selector
+            ui.horizontal(|ui| {
+                ui.label("Analyze split:");
+                egui::ComboBox::from_id_salt("split_selector")
+                    .selected_text(match app.balance.selected_split_index {
+                        0 => "Train",
+                        1 => "Val",
+                        2 => "Test",
+                        3 => "All",
+                        _ => "Train",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut app.balance.selected_split_index, 0, "Train");
+                        ui.selectable_value(&mut app.balance.selected_split_index, 1, "Val");
+                        ui.selectable_value(&mut app.balance.selected_split_index, 2, "Test");
+                        ui.selectable_value(&mut app.balance.selected_split_index, 3, "All");
+                    });
+            });
+            
+            ui.add_space(15.0);
+            
+            // Target Ratios Info Box
+            ui.group(|ui| {
+                ui.set_min_width(400.0);
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("📋 Auto-Rebalancing Target Ratios").strong().size(13.0));
+                    ui.add_space(5.0);
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("📂 Split Size:").size(11.0));
+                        ui.label(egui::RichText::new("Train 70%").size(10.0).color(egui::Color32::from_rgb(100, 200, 255)));
+                        ui.label(egui::RichText::new("/ Val 20%").size(10.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                        ui.label(egui::RichText::new("/ Test 10%").size(10.0).color(egui::Color32::from_rgb(255, 200, 100)));
+                    });
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("👥 CT/T Balance:").size(11.0));
+                        ui.label(egui::RichText::new("50% CT / 50% T").size(10.0).color(egui::Color32::from_rgb(180, 180, 255)));
+                    });
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("📍 Location:").size(11.0));
+                        ui.label(egui::RichText::new("Even distribution (>20% deviation triggers rebalance)").size(10.0).color(egui::Color32::from_rgb(255, 180, 100)));
+                    });
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("🎯 Category:").size(11.0));
+                        ui.label(egui::RichText::new(format!(
+                            "Player {:.0}% / Background {:.0}%",
+                            app.config.target_player_ratio * 100.0,
+                            app.config.target_background_ratio * 100.0
+                        )).size(10.0).color(egui::Color32::from_rgb(150, 255, 150)));
+                    });
+                });
+            });
+            
+            ui.add_space(15.0);
+            
+            if ui.button(egui::RichText::new("🔄 Start Balance Analysis").size(14.0)).clicked() {
+                app.analyze_balance_for_split(app.balance.selected_split_index);
             }
-            ui.add_space(20.0);
+            
+            ui.add_space(10.0);
         });
     }
 }
@@ -144,14 +202,36 @@ fn render_balance_results(app: &mut DatasetCleanerApp, ui: &mut egui::Ui) {
         hardcase_ratio: app.config.target_hardcase_ratio,
     };
 
+    // Show which split was analyzed with re-analyze button
+    let split_name = match app.balance.selected_split_index {
+        0 => "TRAIN",
+        1 => "VAL",
+        2 => "TEST",
+        3 => "ALL",
+        _ => "TRAIN",
+    };
+
     egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
         // Current Distribution Section
+        let header_text = format!("📊 Current Distribution ({})", split_name);
         egui::CollapsingHeader::new(
-            egui::RichText::new("📊 Current Distribution").strong().size(15.0)
+            egui::RichText::new(header_text).strong().size(15.0)
         )
         .default_open(true)
         .show(ui, |ui| {
             render_distribution_section(ui, &stats);
+            
+            // Re-analyze with different split
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.label("Analyze different split:");
+                for (idx, name) in [(0, "Train"), (1, "Val"), (2, "Test"), (3, "All")] {
+                    if ui.small_button(name).clicked() {
+                        app.balance.results = None; // Clear results to show start screen
+                        app.balance.selected_split_index = idx;
+                    }
+                }
+            });
         });
 
         ui.add_space(10.0);
@@ -280,6 +360,29 @@ fn render_distribution_section(ui: &mut egui::Ui, stats: &crate::core::analysis:
             egui::RichText::new(format!("⚠ Hard Cases: {} ({:.1}%)", hc_count, hc_pct))
                 .color(egui::Color32::from_rgb(255, 200, 0)),
         );
+    }
+
+    // Location Distribution
+    if !stats.location_counts.is_empty() {
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("📍 Location Distribution:")
+                .color(egui::Color32::from_rgb(255, 180, 100)),
+        );
+        
+        // Sort locations by count (descending)
+        let mut locations: Vec<_> = stats.location_counts.iter().collect();
+        locations.sort_by(|a, b| b.1.cmp(a.1));
+        
+        ui.indent("location_breakdown", |ui| {
+            for (loc, count) in locations.iter().take(10) {
+                let pct = (**count as f32 / stats.total_images as f32) * 100.0;
+                ui.label(format!("• {}: {} ({:.1}%)", loc, count, pct));
+            }
+            if locations.len() > 10 {
+                ui.label(format!("  ... and {} more locations", locations.len() - 10));
+            }
+        });
     }
 }
 

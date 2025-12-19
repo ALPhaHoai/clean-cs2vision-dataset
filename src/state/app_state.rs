@@ -122,6 +122,8 @@ pub struct BalanceAnalysisState {
     pub cached_best_bg_dest: Option<(crate::core::dataset::DatasetSplit, i32)>,
     /// Cached best destination for player images (split, needed count)
     pub cached_best_player_dest: Option<(crate::core::dataset::DatasetSplit, i32)>,
+    /// Selected split to analyze (0=Train, 1=Val, 2=Test, 3=All)
+    pub selected_split_index: usize,
     /// Channel receiver for progress updates from background thread
     pub(crate) progress_receiver:
         Option<std::sync::mpsc::Receiver<crate::core::analysis::BalanceProgressMessage>>,
@@ -142,6 +144,7 @@ impl BalanceAnalysisState {
             tracked_min_height: 400.0,
             cached_best_bg_dest: None,
             cached_best_player_dest: None,
+            selected_split_index: 0, // Default to Train
             progress_receiver: None,
             cancel_flag: None,
         }

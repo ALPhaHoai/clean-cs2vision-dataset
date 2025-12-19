@@ -13,7 +13,7 @@ use std::sync::{
 };
 use tracing::{error, info, warn};
 
-use crate::core::dataset::DatasetSplit;
+use crate::core::dataset::{parse_label_file, DatasetSplit};
 use crate::core::operations::{get_label_path_for_image, move_file};
 
 use super::{categorize_image, BalanceStats, ImageCategory, TargetRatios};
@@ -300,6 +300,8 @@ pub struct GlobalRebalanceConfig {
     pub tolerance: f32,
     /// Maximum iterations for iterative balancing
     pub max_iterations: usize,
+    /// Whether to balance locations when moving images
+    pub balance_locations: bool,
 }
 
 impl Default for GlobalRebalanceConfig {
@@ -311,6 +313,7 @@ impl Default for GlobalRebalanceConfig {
             ct_t_ratio: 0.50, // 50% CT, 50% T
             tolerance: 0.02, // 2% tolerance
             max_iterations: 10,
+            balance_locations: true,
         }
     }
 }
@@ -321,6 +324,8 @@ pub struct ImageMetadata {
     pub path: PathBuf,
     pub category: ImageCategory,
     pub detection_count: usize,
+    /// Location from label metadata (e.g., "TSpawn", "LongDoors")
+    pub location: Option<String>,
 }
 
 /// Collect metadata for all images in a split
@@ -344,19 +349,18 @@ pub fn collect_image_metadata(
                         let label_path = labels_path.join(format!("{}.txt", stem.to_string_lossy()));
                         let category = categorize_image(&label_path);
                         
-                        // Count detections
-                        let detection_count = if label_path.exists() {
-                            fs::read_to_string(&label_path)
-                                .map(|content| content.lines().filter(|l| !l.trim().is_empty()).count())
-                                .unwrap_or(0)
+                        // Parse label to get detection count and location
+                        let (detection_count, location) = if let Some(label_info) = parse_label_file(&label_path) {
+                            (label_info.detections.len(), label_info.location)
                         } else {
-                            0
+                            (0, None)
                         };
 
                         metadata.push(ImageMetadata {
                             path: image_path,
                             category,
                             detection_count,
+                            location,
                         });
                     }
                 }
@@ -501,10 +505,56 @@ pub fn calculate_global_rebalance_plan(
     
     // Check if already balanced within tolerance
     let tolerance_count = (total_images as f32 * config.tolerance) as i32;
-    let is_balanced = excess.values().all(|&e| e.abs() <= tolerance_count);
+    let splits_balanced = excess.values().all(|&e| e.abs() <= tolerance_count);
     
-    if is_balanced {
-        info!("Splits already balanced within {}% tolerance", (config.tolerance * 100.0) as i32);
+    // Check if locations are imbalanced (if location balancing is enabled)
+    let locations_imbalanced = if config.balance_locations {
+        // Collect all unique locations across all splits
+        let mut all_locations: HashMap<String, Vec<(DatasetSplit, usize)>> = HashMap::new();
+        for (split, stats) in [
+            (DatasetSplit::Train, &initial_stats.train),
+            (DatasetSplit::Val, &initial_stats.val),
+            (DatasetSplit::Test, &initial_stats.test),
+        ] {
+            for (loc, &count) in &stats.location_counts {
+                all_locations.entry(loc.clone()).or_default().push((split, count));
+            }
+        }
+        
+        info!("Location balance check: found {} unique locations", all_locations.len());
+        
+        // Check if any location is significantly imbalanced across splits
+        // (e.g., one split has 80% of a location while another has 5%)
+        let mut has_imbalance = false;
+        for (loc, split_counts) in &all_locations {
+            // Only check locations that exist in at least 1 split with meaningful count
+            let total: usize = split_counts.iter().map(|(_, c)| c).sum();
+            if total >= 5 {  // Only check if there are enough samples
+                for &(split, count) in split_counts {
+                    let expected_ratio = match split {
+                        DatasetSplit::Train => config.split_ratios.train,
+                        DatasetSplit::Val => config.split_ratios.val,
+                        DatasetSplit::Test => config.split_ratios.test,
+                    };
+                    let actual_ratio = count as f32 / total as f32;
+                    // Consider imbalanced if ratio differs by more than 10% from expected
+                    if (actual_ratio - expected_ratio).abs() > 0.10 {
+                        info!("Location '{}' is imbalanced in {:?}: actual {:.1}% vs expected {:.1}%", 
+                            loc, split, actual_ratio * 100.0, expected_ratio * 100.0);
+                        has_imbalance = true;
+                        break;
+                    }
+                }
+            }
+            if has_imbalance { break; }
+        }
+        has_imbalance
+    } else {
+        false
+    };
+    
+    if splits_balanced && !locations_imbalanced {
+        info!("Splits already balanced within {}% tolerance and locations are balanced", (config.tolerance * 100.0) as i32);
         plan.projected_stats = Some(initial_stats);
         return plan;
     }
@@ -513,6 +563,244 @@ pub fn calculate_global_rebalance_plan(
     let mut metadata: HashMap<DatasetSplit, Vec<ImageMetadata>> = HashMap::new();
     for split in [DatasetSplit::Train, DatasetSplit::Val, DatasetSplit::Test] {
         metadata.insert(split, collect_image_metadata(dataset_path, split));
+    }
+    
+    // If splits are balanced but locations aren't, use SMART SWAP MODE
+    let swap_mode = splits_balanced && locations_imbalanced;
+    if swap_mode {
+        info!("=== SMART SWAP MODE: Improving location balance via intelligent swaps ===");
+        
+        // Calculate location ratios for each split to find swap opportunities
+        let splits = [DatasetSplit::Train, DatasetSplit::Val, DatasetSplit::Test];
+        
+        // Find best swap pair by comparing location imbalances
+        let mut best_swap: Option<(DatasetSplit, DatasetSplit, usize)> = None;
+        
+        for i in 0..splits.len() {
+            for j in (i+1)..splits.len() {
+                let split_a = splits[i];
+                let split_b = splits[j];
+                
+                let stats_a = initial_stats.get(split_a);
+                let stats_b = initial_stats.get(split_b);
+                
+                // Find locations that are overrepresented in A but underrepresented in B (and vice versa)
+                let mut swap_potential = 0usize;
+                
+                for (loc, &count_a) in &stats_a.location_counts {
+                    if let Some(&count_b) = stats_b.location_counts.get(loc) {
+                        let total = count_a + count_b;
+                        if total > 5 {
+                            let ratio_a = count_a as f32 / stats_a.total_images as f32;
+                            let ratio_b = count_b as f32 / stats_b.total_images as f32;
+                            
+                            // If significantly different ratios, this is a good swap candidate
+                            if (ratio_a - ratio_b).abs() > 0.05 {
+                                swap_potential += std::cmp::min(count_a, count_b);
+                            }
+                        }
+                    }
+                }
+                
+                info!("Swap potential {:?} <-> {:?}: {} images", split_a, split_b, swap_potential);
+                
+                if let Some((_, _, current_best)) = best_swap {
+                    if swap_potential > current_best {
+                        best_swap = Some((split_a, split_b, swap_potential));
+                    }
+                } else if swap_potential > 0 {
+                    best_swap = Some((split_a, split_b, swap_potential));
+                }
+            }
+        }
+        
+        if let Some((split_a, split_b, potential)) = best_swap {
+            info!("Selected swap pair: {:?} <-> {:?} with potential {}", split_a, split_b, potential);
+            
+            // Get stats for both splits
+            let stats_a = initial_stats.get(split_a);
+            let stats_b = initial_stats.get(split_b);
+            
+            // Find locations overrepresented in A (should move A→B)
+            // and locations overrepresented in B (should move B→A)
+            let mut a_overrep_locations: Vec<String> = Vec::new();
+            let mut b_overrep_locations: Vec<String> = Vec::new();
+            
+            for (loc, &count_a) in &stats_a.location_counts {
+                if let Some(&count_b) = stats_b.location_counts.get(loc) {
+                    let ratio_a = count_a as f32 / stats_a.total_images as f32;
+                    let ratio_b = count_b as f32 / stats_b.total_images as f32;
+                    
+                    if ratio_a > ratio_b + 0.03 {
+                        a_overrep_locations.push(loc.clone());
+                    } else if ratio_b > ratio_a + 0.03 {
+                        b_overrep_locations.push(loc.clone());
+                    }
+                }
+            }
+            
+            info!("Locations overrepresented in {:?}: {:?}", split_a, a_overrep_locations);
+            info!("Locations overrepresented in {:?}: {:?}", split_b, b_overrep_locations);
+            
+            // Select images from A with overrepresented locations
+            let images_a = metadata.get(&split_a).unwrap();
+            let images_b = metadata.get(&split_b).unwrap();
+            
+            let mut swap_from_a: Vec<&ImageMetadata> = images_a.iter()
+                .filter(|img| img.location.as_ref().map(|l| a_overrep_locations.contains(l)).unwrap_or(false))
+                .collect();
+            
+            let mut swap_from_b: Vec<&ImageMetadata> = images_b.iter()
+                .filter(|img| img.location.as_ref().map(|l| b_overrep_locations.contains(l)).unwrap_or(false))
+                .collect();
+            
+            // Limit swap count to maintain balance
+            let swap_count = std::cmp::min(swap_from_a.len(), swap_from_b.len());
+            let swap_count = std::cmp::min(swap_count, 100); // Cap at 100 swaps
+            
+            if swap_count > 0 {
+                info!("Planning {} bidirectional swaps between {:?} and {:?}", swap_count, split_a, split_b);
+                
+                // Create A → B moves
+                let labels_path_a = dataset_path.join(split_a.as_str()).join("labels");
+                let mut actions_a_to_b = Vec::new();
+                for meta in swap_from_a.iter().take(swap_count) {
+                    let label_path = if let Some(stem) = meta.path.file_stem() {
+                        let lp = labels_path_a.join(format!("{}.txt", stem.to_string_lossy()));
+                        if lp.exists() { Some(lp) } else { None }
+                    } else {
+                        None
+                    };
+                    actions_a_to_b.push(MoveAction {
+                        image_path: meta.path.clone(),
+                        label_path,
+                        category: meta.category,
+                        from_split: split_a,
+                        to_split: split_b,
+                    });
+                }
+                
+                // Create B → A moves
+                let labels_path_b = dataset_path.join(split_b.as_str()).join("labels");
+                let mut actions_b_to_a = Vec::new();
+                for meta in swap_from_b.iter().take(swap_count) {
+                    let label_path = if let Some(stem) = meta.path.file_stem() {
+                        let lp = labels_path_b.join(format!("{}.txt", stem.to_string_lossy()));
+                        if lp.exists() { Some(lp) } else { None }
+                    } else {
+                        None
+                    };
+                    actions_b_to_a.push(MoveAction {
+                        image_path: meta.path.clone(),
+                        label_path,
+                        category: meta.category,
+                        from_split: split_b,
+                        to_split: split_a,
+                    });
+                }
+                
+                // Add to plan
+                if !actions_a_to_b.is_empty() {
+                    plan.moves.push(GlobalMoveAction {
+                        from_split: split_a,
+                        to_split: split_b,
+                        category: ImageCategory::CTOnly,
+                        count: actions_a_to_b.len(),
+                        actions: actions_a_to_b,
+                    });
+                }
+                if !actions_b_to_a.is_empty() {
+                    plan.moves.push(GlobalMoveAction {
+                        from_split: split_b,
+                        to_split: split_a,
+                        category: ImageCategory::CTOnly,
+                        count: actions_b_to_a.len(),
+                        actions: actions_b_to_a,
+                    });
+                }
+                
+                plan.total_moves = plan.moves.iter().map(|m| m.count).sum();
+                plan.iterations_used = 1;
+                
+                info!("Smart Swap Mode complete: {} total moves planned", plan.total_moves);
+            } else {
+                // Try one-directional moves if bidirectional swaps not possible
+                // This may slightly change split sizes but improves location balance
+                info!("No bidirectional swap candidates - trying one-directional location moves");
+                
+                // If only one split has overrepresented locations, move FROM that split
+                let (source_split, source_locations, dest_split) = if !a_overrep_locations.is_empty() && b_overrep_locations.is_empty() {
+                    (split_a, a_overrep_locations.clone(), split_b)
+                } else if !b_overrep_locations.is_empty() && a_overrep_locations.is_empty() {
+                    (split_b, b_overrep_locations.clone(), split_a)
+                } else {
+                    info!("Neither split has clear overrepresentation - falling back to normal mode");
+                    // Fall through to normal mode below
+                    (split_a, Vec::new(), split_b)
+                };
+                
+                if !source_locations.is_empty() {
+                    let source_images = metadata.get(&source_split).unwrap();
+                    let candidates: Vec<&ImageMetadata> = source_images.iter()
+                        .filter(|img| img.location.as_ref().map(|l| source_locations.contains(l)).unwrap_or(false))
+                        .collect();
+                    
+                    let move_count = std::cmp::min(candidates.len(), 50); // Cap at 50 moves
+                    
+                    if move_count > 0 {
+                        info!("Planning {} one-directional moves from {:?} to {:?} for locations: {:?}", 
+                            move_count, source_split, dest_split, source_locations);
+                        
+                        let labels_path = dataset_path.join(source_split.as_str()).join("labels");
+                        let mut actions = Vec::new();
+                        for meta in candidates.iter().take(move_count) {
+                            let label_path = if let Some(stem) = meta.path.file_stem() {
+                                let lp = labels_path.join(format!("{}.txt", stem.to_string_lossy()));
+                                if lp.exists() { Some(lp) } else { None }
+                            } else {
+                                None
+                            };
+                            actions.push(MoveAction {
+                                image_path: meta.path.clone(),
+                                label_path,
+                                category: meta.category,
+                                from_split: source_split,
+                                to_split: dest_split,
+                            });
+                        }
+                        
+                        plan.moves.push(GlobalMoveAction {
+                            from_split: source_split,
+                            to_split: dest_split,
+                            category: ImageCategory::CTOnly,
+                            count: actions.len(),
+                            actions,
+                        });
+                        
+                        plan.total_moves = move_count;
+                        plan.iterations_used = 1;
+                        
+                        info!("One-directional location move complete: {} moves planned", plan.total_moves);
+                        plan.projected_stats = Some(initial_stats);
+                        return plan;
+                    }
+                }
+                
+                // If still nothing, log and fall through to normal mode
+                info!("Smart Swap Mode found no candidates - falling through to normal redistribution mode");
+            }
+        } else {
+            info!("No suitable split pair found for swapping - falling through to normal mode");
+        }
+        
+        // Fall through: if swap mode didn't produce a plan, try normal mode anyway
+        if plan.moves.is_empty() {
+            info!("Attempting normal redistribution mode as fallback");
+            // Continue to normal mode below instead of returning
+        } else {
+            plan.projected_stats = Some(initial_stats);
+            return plan;
+        }
     }
     
     // Track projected stats as we plan moves
@@ -528,35 +816,46 @@ pub fn calculate_global_rebalance_plan(
         excess.insert(DatasetSplit::Val, projected.val.total_images as i32 - target_val as i32);
         excess.insert(DatasetSplit::Test, projected.test.total_images as i32 - target_test as i32);
         
-        // Find split with most excess
-        let from_split = *excess.iter()
-            .filter(|(_, &e)| e > tolerance_count)
-            .max_by_key(|(_, &e)| e)
-            .map(|(s, _)| s)
-            .unwrap_or(&DatasetSplit::Train);
-        
-        let from_excess = *excess.get(&from_split).unwrap_or(&0);
-        if from_excess <= tolerance_count {
-            break; // No more excess to redistribute
-        }
-        
-        // Find split with most deficit
-        let to_split = *excess.iter()
-            .filter(|(_, &e)| e < -tolerance_count)
-            .min_by_key(|(_, &e)| e)
-            .map(|(s, _)| s)
-            .unwrap_or(&DatasetSplit::Val);
-        
-        let to_deficit = -(*excess.get(&to_split).unwrap_or(&0));
-        if to_deficit <= tolerance_count {
-            break; // No more deficit to fill
-        }
-        
-        // Calculate how many to move
-        let move_count = from_excess.min(to_deficit) as usize;
-        if move_count == 0 {
-            break;
-        }
+        // Normal mode: determine source and destination splits
+        let (from_split, to_split, move_count) = {
+            // Find split with most deficit first
+            let to_split = *excess.iter()
+                .filter(|(_, &e)| e < -tolerance_count)
+                .min_by_key(|(_, &e)| e)
+                .map(|(s, _)| s)
+                .unwrap_or(&DatasetSplit::Val);
+            
+            let to_deficit = -(*excess.get(&to_split).unwrap_or(&0));
+            if to_deficit <= 0 {
+                break; // No deficit to fill
+            }
+            
+            // Find split with most excess - be more flexible if there's a significant deficit
+            // If deficit > tolerance, accept any positive excess
+            let min_excess = if to_deficit > tolerance_count { 0 } else { tolerance_count };
+            
+            let from_split = *excess.iter()
+                .filter(|(_, &e)| e > min_excess)
+                .max_by_key(|(_, &e)| e)
+                .map(|(s, _)| s)
+                .unwrap_or(&DatasetSplit::Train);
+            
+            let from_excess = *excess.get(&from_split).unwrap_or(&0);
+            if from_excess <= 0 {
+                break; // No excess to redistribute
+            }
+            
+            // Calculate how many to move - limit to what's needed
+            let move_count = std::cmp::min(from_excess, to_deficit) as usize;
+            if move_count == 0 {
+                break;
+            }
+            
+            info!("Planning move: {} images from {:?} (excess {}) to {:?} (deficit {})", 
+                move_count, from_split, from_excess, to_split, to_deficit);
+            
+            (from_split, to_split, move_count)
+        };
         
         // Get images from source split
         let labels_path = dataset_path.join(from_split.as_str()).join("labels");
@@ -576,9 +875,19 @@ pub fn calculate_global_rebalance_plan(
             true // No players yet, prefer CT
         };
         
-        // Sort available images to prioritize the needed category
-        // Order: preferred player type > other player type > background
+        // Calculate location balance for destination split (if enabled)
+        let dest_location_counts = &to_stats.location_counts;
+        let avg_location_count = if config.balance_locations && !dest_location_counts.is_empty() {
+            dest_location_counts.values().sum::<usize>() as f32 / dest_location_counts.len() as f32
+        } else {
+            0.0
+        };
+        
+        // Sort available images to prioritize:
+        // 1. Needed player type (CT/T balance)
+        // 2. Locations underrepresented in destination (if balance_locations enabled)
         available.sort_by(|a, b| {
+            // First: category priority
             let priority_a = match a.category {
                 ImageCategory::CTOnly => if prefer_ct { 0 } else { 1 },
                 ImageCategory::TOnly => if prefer_ct { 1 } else { 0 },
@@ -593,7 +902,30 @@ pub fn calculate_global_rebalance_plan(
                 ImageCategory::Background => 3,
                 ImageCategory::HardCase => 4,
             };
-            priority_a.cmp(&priority_b)
+            
+            // Primary sort by category
+            let cat_cmp = priority_a.cmp(&priority_b);
+            if cat_cmp != std::cmp::Ordering::Equal {
+                return cat_cmp;
+            }
+            
+            // Secondary sort by location (prefer underrepresented locations in destination)
+            if config.balance_locations && avg_location_count > 0.0 {
+                let loc_count_a = a.location.as_ref()
+                    .and_then(|loc| dest_location_counts.get(loc))
+                    .copied()
+                    .unwrap_or(0);
+                let loc_count_b = b.location.as_ref()
+                    .and_then(|loc| dest_location_counts.get(loc))
+                    .copied()
+                    .unwrap_or(0);
+                
+                // Prefer images from locations that are underrepresented in destination
+                // (lower count = higher priority)
+                loc_count_a.cmp(&loc_count_b)
+            } else {
+                std::cmp::Ordering::Equal
+            }
         });
         
         // Shuffle within same priority groups for variety

@@ -82,6 +82,12 @@ The auto-rebalancing feature provides comprehensive dataset balancing with three
 - **Priority Selection**: When moving images between splits, prioritizes the player type that's underrepresented in the destination
 - **Applies to**: CT-only images and T-only images (images with players)
 
+#### Location Balancing (Map Location Distribution)
+- **Even Distribution**: Ensures images are spread across map locations (e.g., TSpawn, LongDoors, CTSpawn)
+- **Independent Trigger**: Will trigger rebalancing even when split sizes are balanced, if locations are imbalanced (>20% deviation)
+- **Location-Aware Selection**: When moving images, prefers locations underrepresented in the destination
+- **Automatic**: Enabled by default via `balance_locations` config flag
+
 #### Category-Based Balancing (Background/Player Ratio)
 - **Target Composition**: Move excess background images or player images between splits
 - **Per-Split Control**: Balance individual splits independently
@@ -90,7 +96,7 @@ The auto-rebalancing feature provides comprehensive dataset balancing with three
 - **Preview Before Execute**: See exactly which files will be moved before confirming
 - **Undoable Operations**: All moves can be undone within the session
 - **Progress Tracking**: Real-time progress during file moves with cancel support
-- **Smart Selection**: Algorithm intelligently selects which images to move based on multiple balance criteria
+- **Smart Selection**: Algorithm intelligently selects which images to move based on multiple balance criteria (CT/T, Location, Category)
 
 ### 📝 Logging & Debugging
 - **Structured Logging**: Comprehensive logging system using `tracing` and `tracing-subscriber`
